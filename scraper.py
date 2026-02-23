@@ -92,10 +92,6 @@ def scrape_with_bot():
                 current_max_id += 1
                 extracted["id"] = current_max_id
                 new_entries.append(extracted)
-                
-                new_item["id"] = current_max_id 
-
-                new_entries.append(new_item)
                 existing_links.add(msg_link)
 
     if last_update_id > 0:
