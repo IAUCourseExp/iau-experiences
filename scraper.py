@@ -8,6 +8,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHANNEL_ID = "@IAUCourseExp"
 CLEAN_CH_ID = CHANNEL_ID.replace('@', '')
 DATA_FILE = "src/data.json"
+REPORT_CHAT_ID = os.environ.get("REPORT_CHAT_ID")
 
 
 def clean_text(text):
@@ -44,6 +45,22 @@ def parse_experience(message_text, msg_id):
             "text": re.sub(r"\n*❗️توجه❗️.*", "", text_match.group(1).strip(), flags=re.DOTALL) if text_match else "بدون متن"
         }
     return None
+
+
+def send_telegram_report(status_msg):
+    if not REPORT_CHAT_ID or not BOT_TOKEN:
+        return
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": REPORT_CHAT_ID,
+        "text": status_msg,
+        "parse_mode": "HTML"
+    }
+    try:
+        requests.post(url, json=payload, timeout=10)
+    except Exception as e:
+        print(f"❌ خطا در ارسال گزارش: {e}")
+
 
 def scrape_with_bot():
     last_update_id = 0
@@ -101,21 +118,32 @@ def scrape_with_bot():
         except:
             print("⚠️ خطای کوچک در تایید آپدیت‌ها به تلگرام")
 
+    now = datetime.datetime.utcnow() + datetime.timedelta(hours=3, minutes=30)
+    time_str = now.strftime("%Y/%m/%d - %H:%M")
+
     if new_entries:
         database.extend(new_entries)
         with open(DATA_FILE, 'w', encoding='utf-8') as f:
             json.dump(database, f, ensure_ascii=False, indent=4)
         
-        now = datetime.datetime.utcnow() + datetime.timedelta(hours=3, minutes=30)
-        update_info = {
-            "last_update": now.strftime("%Y/%m/%d - %H:%M")
-        }
-        
+        update_info = {"last_update": time_str}
         with open("src/last_update.json", "w", encoding="utf-8") as f:
             json.dump(update_info, f, ensure_ascii=False, indent=4)
+        
         print(f"✅ موفقیت: {len(new_entries)} تجربه جدید اضافه شد.")
     else:
         print("--- تجربه جدیدی پیدا نشد ---")
+
+    report_text = (
+        f"🤖 <b>گزارش خودکار اسکرپر</b>\n\n"
+        f"📅 زمان اجرا: <code>{time_str}</code>\n"
+        f"✅ وضعیت: {'تجربه جدید اضافه شد 📥' if new_entries else 'دیتای جدیدی نبود 😴'}\n"
+        f"📥 تعداد جدید در این پارت: <b>{len(new_entries)}</b>\n"
+        f"📊 کل تجربیات دیتابیس: <b>{len(database)}</b>\n\n"
+        f"🔗 مشاهده سایت:\n https://IAUCourseExp.github.io/iau-experiences/"
+    )
+
+    send_telegram_report(report_text)
 
 if __name__ == "__main__":
     scrape_with_bot()
