@@ -1,0 +1,49 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Vazirmatn", ui-sans-serif, system-ui, sans-serif;
+}
+
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/fonts/webfonts/Vazirmatn-Medium.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@layer base {
+  html, body {
+    font-family: "Vazirmatn", sans-serif;
+    -webkit-text-size-adjust: 100%; 
+    @apply antialiased selection:bg-blue-100 selection:text-blue-900;
+  }
+}
+
+.os-theme-dark {
+  --os-handle-bg: rgba(59, 130, 246, 0.5);
+  --os-handle-bg-hover: rgba(59, 130, 246, 0.8);
+  --os-handle-bg-active: rgba(37, 99, 235, 1);
+  --os-size: 8px;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+}
+
+nav {
+  width: 100% !important;
+  display: flex !important;
+  justify-content: center !important;
+}
+
+nav .max-w-7xl {
+  width: 100% !important;
+  max-width: 1280px !important;
+  margin: 0 auto !important;
+}
+
+* {
+  -webkit-text-size-adjust: none !important;
+}
