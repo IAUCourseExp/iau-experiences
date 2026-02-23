@@ -81,9 +81,9 @@ def scrape_with_bot():
         
         msg_id = message.get("message_id")
         msg_text = message.get("text", "")
-        msg_link = f"https://t.me/{CLEAN_CH_ID}/{msg_id}"
+        current_link = f"https://t.me/{CLEAN_CH_ID}/{msg_id}"
 
-        if msg_link in existing_links:
+        if current_link in existing_links:
             continue
 
         if any(indicator in msg_text for indicator in ["📚نام درس", "🟡درس"]):
@@ -92,7 +92,7 @@ def scrape_with_bot():
                 current_max_id += 1
                 extracted["id"] = current_max_id
                 new_entries.append(extracted)
-                existing_links.add(msg_link)
+                existing_links.add(current_link)
 
     if last_update_id > 0:
         try:
