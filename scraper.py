@@ -6,6 +6,7 @@ import datetime
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHANNEL_ID = "@IAUCourseExp"
+CLEAN_CH_ID = CHANNEL_ID.replace('@', '')
 DATA_FILE = "src/data.json"
 
 
@@ -35,7 +36,7 @@ def parse_experience(message_text, msg_id):
     if course_match and prof_match:
         return {
             "id": 0,
-            "Link": f"https://t.me/{CHANNEL_ID[1:]}/{msg_id}",
+            "Link": f"https://t.me/{CLEAN_CH_ID}/{msg_id}",
             "course": ' '.join(clean_text(course_match.group(1)).split()),
             "Student_Score": student_score,
             "Professor_Score": prof_score,
@@ -45,6 +46,8 @@ def parse_experience(message_text, msg_id):
     return None
 
 def scrape_with_bot():
+    last_update_id = 0
+    
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, 'r', encoding='utf-8') as f:
             database = json.load(f)
@@ -72,26 +75,35 @@ def scrape_with_bot():
 
     new_entries = []
     for update in response.get("result", []):
+        last_update_id = update.get("update_id")
         message = update.get("channel_post")
         if not message: continue
         
         msg_id = message.get("message_id")
         msg_text = message.get("text", "")
-        msg_link = f"https://t.me/{CHANNEL_ID.replace('@', '')}/{msg_id}"
+        msg_link = f"https://t.me/{CLEAN_CH_ID}/{msg_id}"
 
-        if msg_link in existing_links: continue
+        if msg_link in existing_links:
+            continue
 
         if any(indicator in msg_text for indicator in ["📚نام درس", "🟡درس"]):
             extracted = parse_experience(msg_text, msg_id)
             if extracted:
                 current_max_id += 1
+                extracted["id"] = current_max_id
+                new_entries.append(extracted)
                 
-                new_item = {"id": current_max_id}
-                new_item.update(extracted)
                 new_item["id"] = current_max_id 
 
                 new_entries.append(new_item)
                 existing_links.add(msg_link)
+
+    if last_update_id > 0:
+        try:
+            requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates?offset={last_update_id + 1}", timeout=5)
+            print(f"--- آپدیت‌ها تا آی‌دی {last_update_id} تایید شدند ---")
+        except:
+            print("⚠️ خطای کوچک در تایید آپدیت‌ها به تلگرام")
 
     if new_entries:
         database.extend(new_entries)
