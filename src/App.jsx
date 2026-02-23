@@ -105,7 +105,7 @@ function App() {
               <div className="flex items-center gap-3 shrink-0">
                 <div className="w-12 h-12 shrink-0 overflow-hidden rounded-xl shadow-lg shadow-blue-200/50 border border-white">
                   <img 
-                    src="/logo.png"
+                    src="./logo.png"
                     alt="Logo"
                     className="w-full h-full object-cover"
                   />
