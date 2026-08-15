@@ -9,7 +9,8 @@ CHANNEL_ID = "@IAUCourseExp"
 CLEAN_CH_ID = CHANNEL_ID.replace('@', '')
 DATA_FILE = "src/data.json"
 REPORT_CHAT_ID = os.environ.get("REPORT_CHAT_ID")
-OFFSET_FILE = "src/last_offset.txt" 
+OFFSET_FILE = "src/last_offset.txt"
+
 
 def clean_text(text):
     if not text:
@@ -89,7 +90,6 @@ def send_telegram_report(status_msg):
 
 
 def load_offset():
-    """بارگذاری آخرین offset ذخیره‌شده (اگر وجود داشته باشد)"""
     if os.path.exists(OFFSET_FILE):
         try:
             with open(OFFSET_FILE, "r", encoding="utf-8") as f:
@@ -100,7 +100,6 @@ def load_offset():
 
 
 def save_offset(offset):
-    """ذخیره آخرین offset برای اجراهای بعدی"""
     try:
         with open(OFFSET_FILE, "w", encoding="utf-8") as f:
             f.write(str(offset))
@@ -117,15 +116,13 @@ def scrape_with_bot():
 
     existing_links = {item["Link"] for item in database}
 
-    last_update_id = load_offset()
-
     if database:
         current_max_id = max(item["id"] for item in database)
     else:
         current_max_id = 0
 
-    all_new_entries = []
-    total_new = 0
+    all_updates = []
+    last_update_id = load_offset() 
 
     print(f"🔄 شروع دریافت آپدیت‌ها از offset {last_update_id}")
 
@@ -138,7 +135,7 @@ def scrape_with_bot():
         try:
             response = requests.get(url, timeout=10).json()
         except Exception as e:
-            print(f"❌ خطای شبکه (احتمالا پروکسی روشن نیست): {e}")
+            print(f"❌ خطای شبکه: {e}")
             return
 
         if not response.get("ok"):
@@ -149,64 +146,73 @@ def scrape_with_bot():
         if not updates:
             break
 
-        new_in_this_batch = 0
-        for update in updates:
-            update_id = update.get("update_id")
-            if update_id:
-                last_update_id = max(last_update_id, update_id)
+        all_updates.extend(updates)
+        for upd in updates:
+            if upd.get("update_id", 0) > last_update_id:
+                last_update_id = upd["update_id"]
 
-            message = update.get("channel_post")
-            if not message:
-                continue
+        print(f"📦 {len(updates)} آپدیت دریافت شد (مجموع: {len(all_updates)})")
 
-            msg_id = message.get("message_id")
-            msg_text = message.get("text", "")
-            current_link = f"https://t.me/{CLEAN_CH_ID}/{msg_id}"
+        if len(updates) < 100:
+            break
 
-            if current_link in existing_links:
-                continue
+    if not all_updates:
+        print("--- هیچ آپدیتی در کانال وجود ندارد ---")
+        return
 
+    print(f"✅ کل آپدیت‌های دریافت‌شده: {len(all_updates)}")
+
+    all_updates.reverse()
+    print("🔄 لیست آپدیت‌ها معکوس شد (از جدید به قدیم)")
+
+    new_entries = []
+    stop_at_first_duplicate = True  
+
+    for update in all_updates:
+        message = update.get("message") or update.get("channel_post")
+        if not message:
+            continue
+
+        msg_id = message.get("message_id")
+        msg_text = message.get("text", "")
+        current_link = f"https://t.me/{CLEAN_CH_ID}/{msg_id}"
+
+        if stop_at_first_duplicate and current_link in existing_links:
+            print(f"🛑 به اولین لینک تکراری رسیدیم: {current_link} — متوقف شدیم")
+            break
+
+        if current_link not in existing_links:
             if any(indicator in msg_text for indicator in ["📚نام درس", "🟡درس"]):
                 extracted = parse_experience(msg_text, msg_id)
                 if extracted:
                     current_max_id += 1
                     extracted["id"] = current_max_id
-                    all_new_entries.append(extracted)
+                    new_entries.append(extracted)
                     existing_links.add(current_link)
-                    new_in_this_batch += 1
-                    total_new += 1
 
-        print(
-            f"📦 {len(updates)} آپدیت دریافت شد، {new_in_this_batch} تجربه جدید در این بسته"
-        )
+    now = datetime.datetime.utcnow() + datetime.timedelta(hours=3, minutes=30)
+    time_str = now.strftime("%Y/%m/%d - %H:%M")
 
-        if len(updates) < 100:
-            break
-
-    if all_new_entries:
-        database.extend(all_new_entries)
+    if new_entries:
+        database.extend(new_entries)
         with open(DATA_FILE, "w", encoding="utf-8") as f:
             json.dump(database, f, ensure_ascii=False, indent=4)
 
         save_offset(last_update_id)
 
-        now = datetime.datetime.utcnow() + datetime.timedelta(hours=3, minutes=30)
-        time_str = now.strftime("%Y/%m/%d - %H:%M")
         with open("src/last_update.json", "w", encoding="utf-8") as f:
             json.dump({"last_update": time_str}, f, ensure_ascii=False, indent=4)
 
-        print(f"✅ موفقیت: {total_new} تجربه جدید اضافه شد.")
+        print(f"✅ موفقیت: {len(new_entries)} تجربه جدید اضافه شد.")
     else:
         print("--- تجربه جدیدی پیدا نشد ---")
-
-    now = datetime.datetime.utcnow() + datetime.timedelta(hours=3, minutes=30)
-    time_str = now.strftime("%Y/%m/%d - %H:%M")
+    
 
     report_text = (
         f"🤖 <b>گزارش خودکار اسکرپر</b>\n\n"
         f"📅 زمان اجرا: <code>{time_str}</code>\n"
-        f"✅ وضعیت: {'تجربه جدید اضافه شد 📥' if all_new_entries else ' تجربه جدیدی نبود 😴 تجاربتون رو بفرستید به بات تجربیات | @IAUCourseExpBot '}\n"
-        f"📥 تعداد جدید در این پارت: <b>{total_new}</b>\n"
+        f"✅ وضعیت: {'تجربه جدید اضافه شد 📥' if new_entries else ' تجربه جدیدی نبود 😴 تجاربتون رو بفرستید به بات تجربیات | @IAUCourseExpBot '}\n"
+        f"📥 تعداد جدید در این پارت: <b>{len(new_entries)}</b>\n"
         f"📊 کل تجربیات دیتابیس: <b>{len(database)}</b>\n\n"
         f"🔗 مشاهده سایت:\n https://IAUCourseExp.github.io/iau-experiences/"
     )
