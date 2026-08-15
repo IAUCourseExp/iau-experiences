@@ -153,7 +153,7 @@ function App() {
               <div className="flex flex-col items-start">
                 <span className="text-[8px] text-emerald-500 font-bold uppercase">Last Update</span>
                 <span id="last-update" className="text-[10px] text-emerald-700 font-black">
-                  {lastUpdate}
+                  {lastUpdate} | {totalExperiences} تجربه
                 </span>
               </div>
             </div>
