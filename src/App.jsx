@@ -24,6 +24,7 @@ function App() {
   const [selectedExp, setSelectedExp] = useState(null);
   const [displayCount, setDisplayCount] = useState(12);
   const observerTarget = useRef(null);
+  const totalExperiences = experiencesData.length;
   const [lastUpdate, setLastUpdate] = useState("در حال بارگذاری...");
   
 
