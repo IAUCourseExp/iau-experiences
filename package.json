@@ -10,7 +10,8 @@
     "predeploy": "npm run build",
     "deploy": "gh-pages -d dist",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "deploy-all": "git add . && git commit -m 'update' && git push origin main && npm run generate-time && npm run build && npx gh-pages -d dist"
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4.1.18",

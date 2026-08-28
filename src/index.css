@@ -43,7 +43,3 @@ nav .max-w-7xl {
   max-width: 1280px !important;
   margin: 0 auto !important;
 }
-
-* {
-  -webkit-text-size-adjust: none !important;
-}
