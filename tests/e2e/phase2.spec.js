@@ -113,16 +113,63 @@ test.describe('Feature 2 — explorer', () => {
   // replaced by the corpus-derived Semantic Atlas (tools/nlp_pipeline.py).
   // The journey now exercises the Atlas: expand a topic card, verify its
   // evidence disclosure, and open the topic's member experiences.
-  test('atlas topic expands with evidence and opens its member experiences', async ({ page }) => {
+  test('Atlas handles semantic topics and honest fallback', async ({ page }) => {
     await page.goto('/iau-experiences/#/explore');
-    const topicToggle = page.locator('main section[aria-label="اطلس موضوعی معنایی"] button[aria-expanded]').first();
-    await expect(topicToggle).toBeVisible({ timeout: 15_000 });
-    await topicToggle.click();
-    await expect(page.getByText(/برچسب آن توسط الگوریتم تولید شده و بازبینی انسانی نشده/)).toBeVisible();
-    await page.getByRole('button', { name: /نمایش .* تجربه‌ی این موضوع/ }).click();
-    await expect(page.getByRole('heading', { name: /^موضوع: / })).toBeVisible();
-    await expect(page.locator('main article').first()).toBeVisible();
-  });
+
+    const atlas = page.locator(
+        'main section[aria-label="اطلس موضوعی معنایی"]'
+    );
+
+    await expect(atlas).toBeVisible();
+
+    const topicToggle = atlas.locator('button[aria-expanded]').first();
+
+    const fallbackNotice = page.getByText(
+        /در آخرین تولید، خوشه‌بندی معنایی به آستانه‌های کیفیت نرسید/
+    );
+
+    // Wait until the Atlas has resolved into one of its two valid modes.
+    await expect.poll(async () => {
+        if (await topicToggle.count()) return 'semantic';
+
+        if (await fallbackNotice.isVisible().catch(() => false)) {
+        return 'fallback';
+        }
+
+        return 'loading';
+    }, { timeout: 15000 }).not.toBe('loading');
+
+    if (await topicToggle.count()) {
+        // Semantic mode: verify topic evidence and member navigation.
+        await expect(topicToggle).toBeVisible();
+        await topicToggle.click();
+
+        await expect(
+        page.getByText(/برچسب آن توسط الگوریتم تولید شده و بازبینی انسانی نشده/)
+        ).toBeVisible();
+
+        await page.getByRole('button', {
+        name: /نمایش .* تجربه‌ی این موضوع/
+        }).click();
+
+        await expect(
+        page.getByRole('heading', { name: /^موضوع: / })
+        ).toBeVisible();
+
+        await expect(
+        page.locator('main article').first()
+        ).toBeVisible();
+    } else {
+        // Fallback mode: verify honest abstention and continued lexical search.
+        await expect(fallbackNotice).toBeVisible();
+
+        const search = page.locator('#explorer-search');
+
+        await expect(search).toBeVisible();
+        await search.fill('جزوه');
+        await expect(search).toHaveValue('جزوه');
+    }
+    });
 
   test('keyword chips fill the search', async ({ page }) => {
     await page.goto('/iau-experiences/#/explore');

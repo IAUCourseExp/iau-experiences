@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import { validateDataset, canonicalRecordBytes, fnv1a64, SCHEMA_VERSION } from '../../src/lib/schema.js';
-import { loadTopicsArtifact, bindArtifact, neighborsFor } from '../../src/lib/atlas.js';
+import {
+  loadTopicsArtifact,
+  loadNeighborsArtifact,
+  bindArtifact,
+  neighborsFor,
+} from '../../src/lib/atlas.js';
 
 // PHASE IV CHANGE REASON: the Phase III validateDataset quarantined records
 // without usable ids. The Phase IV core data principle (mission §7) requires
@@ -170,23 +175,67 @@ describe('atlas artifact binding (stale-artifact detection)', () => {
 });
 
 describe('published atlas artifacts bind to the current dataset', () => {
-  it('atlas-topics.json matches the live dataset drift fingerprint (if semantic mode)', async () => {
+  it('atlas-topics.json binds correctly and respects its declared mode', async () => {
     const data = JSON.parse(fs.readFileSync('src/data.json', 'utf8'));
-    const fingerprint = validateDataset(data).driftFingerprint;
+    const validation = validateDataset(data);
+    const fingerprint = validation.driftFingerprint;
+
     const artifact = await loadTopicsArtifact();
     const binding = bindArtifact(artifact, fingerprint);
-    if (binding.bound) {
-      expect(binding.mode).toBe('semantic');
+
+    // A newly generated artifact must bind to the current dataset.
+    expect(binding.bound).toBe(true);
+
+    // Both modes are valid pipeline outcomes.
+    expect(['semantic', 'lexical-fallback']).toContain(binding.mode);
+    expect(binding.mode).toBe(artifact.manifest.mode);
+
+    if (binding.mode === 'semantic') {
       expect(artifact.topics.length).toBeGreaterThan(0);
-      for (const t of artifact.topics) {
-        expect(t.size).toBeGreaterThanOrEqual(8); // minimum-evidence policy
-        expect(t.docIds.length).toBe(t.size);
-        expect(t.phrases.length).toBeGreaterThan(0);
+
+      for (const topic of artifact.topics) {
+        expect(topic.size).toBeGreaterThanOrEqual(8);
+        expect(topic.docIds.length).toBe(topic.size);
+        expect(topic.phrases.length).toBeGreaterThan(0);
       }
     } else {
-      // honest degraded state until the pipeline regenerates — but it must be
-      // a *binding* mismatch, never a malformed artifact
-      expect(binding.reason).toBe('dataset-checksum-mismatch');
+      // Honest abstention: no fabricated topics.
+      expect(artifact.topics).toEqual([]);
+      expect(artifact.docTopic).toEqual({});
+    }
+  });
+
+  it('atlas-neighbors.json binds to the same dataset and mode', async () => {
+    const data = JSON.parse(fs.readFileSync('src/data.json', 'utf8'));
+    const validation = validateDataset(data);
+    const fingerprint = validation.driftFingerprint;
+
+    const topics = await loadTopicsArtifact();
+    const neighbors = await loadNeighborsArtifact();
+
+    const topicBinding = bindArtifact(topics, fingerprint);
+    const neighborBinding = bindArtifact(neighbors, fingerprint);
+
+    expect(topicBinding.bound).toBe(true);
+    expect(neighborBinding).toEqual({
+      bound: true,
+      mode: topicBinding.mode,
+    });
+
+    if (topicBinding.mode === 'lexical-fallback') {
+      expect(neighbors.neighbors).toEqual({});
+      return;
+    }
+
+    const validIds = new Set(validation.records.map((r) => r.identity));
+
+    for (const [recordId, list] of Object.entries(neighbors.neighbors)) {
+      expect(validIds.has(recordId)).toBe(true);
+
+      for (const neighbor of list) {
+        expect(validIds.has(neighbor.id)).toBe(true);
+        expect(neighbor.id).not.toBe(recordId);
+      }
     }
   });
 });
