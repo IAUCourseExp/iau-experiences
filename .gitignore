@@ -22,3 +22,32 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Audit & test artifacts (generated evidence, not source)
+audit-artifacts/
+playwright-report/
+test-results/
+.mimosa/
+
+# Model caches — never committed, never deployed (Phase IV §9.7/§23.4)
+.cache/
+**/.cache/huggingface/
+*.safetensors
+*.onnx
+*.bin
+*.pt
+*.pth
+*.ckpt
+
+# Secrets
+.env
+*.env
+
+# Generated matrix fixtures (regenerable from data.json via tools/matrix)
+tools/fixtures/
+
+# Intermediate/stale atlas artifacts (canonical outputs are atlas-topics.json, atlas-neighbors.json)
+src/derived/atlas.json
+
+# Local safety backups
+.backup-derived/

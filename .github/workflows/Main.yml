@@ -1,29 +1,48 @@
 name: Auto Scraper & Deploy
 
+# Phase IV automation (mission §13):
+#   unchanged scraper (Python 3.9) → commit/push source data
+#   → separate pinned Python 3.12 NLP environment regenerates derived artifacts
+#   → artifact validation gate → npm ci → lint → unit tests → build
+#   → dist verification → GitHub Pages deploy (only after every gate).
+# A failure at any gate stops publication; the previous gh-pages deployment
+# stays live; a later scheduled run recovers automatically.
+
 on:
   schedule:
-    - cron: "30 20 * * *" 
-  workflow_dispatch:      
+    - cron: "30 20 * * *"
+  workflow_dispatch:
+
+# Least privilege: only what the scraper commit/push and Pages deploy need.
+permissions:
+  contents: write
+
+# Never overlap runs: a stale build must not overwrite a newer deployment,
+# and two scrapers must not race. Queued runs (not cancelled) recover
+# automatically after failures.
+concurrency:
+  group: iau-scraper-build-deploy
+  cancel-in-progress: false
 
 jobs:
-  build-and-deploy:
+  scraper-nlp-build-deploy:
     runs-on: ubuntu-latest
-    
-    permissions:
-      contents: write 
-
+    timeout-minutes: 60
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 (immutable SHA)
         with:
           fetch-depth: 0
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      # ---------------------------------------------------------------
+      # 1. Scraper — UNCHANGED behavior, UNCHANGED runtime, UNCHANGED secrets
+      # ---------------------------------------------------------------
+      - name: Set up Python 3.9 (scraper runtime — preserved)
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5 (immutable SHA)
         with:
           python-version: '3.9'
 
-      - name: Install Python dependencies
+      - name: Install scraper dependencies
         run: pip install requests
 
       - name: Run Scraper
@@ -40,19 +59,78 @@ jobs:
           git diff --staged --quiet || git commit -m "Automated update: New experiences data & Last_update timestamp"
           git push origin main
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      # ---------------------------------------------------------------
+      # 2. NLP build — SEPARATE pinned Python 3.12 environment (mission §13.3)
+      # ---------------------------------------------------------------
+      - name: Set up Python 3.12 (NLP runtime)
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5 (immutable SHA)
         with:
-          node-version: 18
-          cache: 'npm'
+          python-version: '3.12'
 
-      - name: Install NPM dependencies & Build
+      - name: Cache NLP Python environment
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4 (immutable SHA)
+        with:
+          path: ~/.cache/pip
+          key: nlp-py312-${{ runner.os }}-${{ hashFiles('tools/requirements-nlp.txt') }}
+          restore-keys: |
+            nlp-py312-${{ runner.os }}-
+
+      - name: Install pinned NLP dependencies
         run: |
-          npm install
-          npm run build
+          python -m pip install --upgrade pip
+          pip install -r tools/requirements-nlp.txt
 
+      # ---------------------------------------------------------------
+      # 3. Regenerate derived artifacts from the CURRENT committed data
+      # ---------------------------------------------------------------
+      - name: Regenerate derived artifacts (semantic atlas)
+        run: python tools/nlp_pipeline.py --data src/data.json --out src/derived/atlas.json --summary audit-artifacts/phase-4/pipeline-summary.json
+
+      - name: Validate artifacts (gate — stale/invalid stops publication)
+        run: node tools/validate-artifacts.mjs
+
+      - name: Commit regenerated artifacts (idempotent — skips when unchanged)
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/derived/atlas-topics.json src/derived/atlas-neighbors.json
+          git diff --staged --quiet || git commit -m "Automated update: regenerated semantic atlas artifacts"
+          git push origin main
+
+      # ---------------------------------------------------------------
+      # 4. Node build — maintained LTS (Vite 7 requires >=20.19; Node 18 EOL)
+      # ---------------------------------------------------------------
+      - name: Set up Node.js 22 (LTS, Vite 7 compatible)
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4 (immutable SHA)
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies (npm ci — locked)
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Production build
+        run: npm run build
+
+      - name: Verify dist (no model weights; atlas artifacts present)
+        run: |
+          ! find dist -name "*.safetensors" -o -name "*.onnx" -o -name "*.bin" -size +1M | grep -q .
+          ls dist/assets/ | grep -q "atlas-topics"
+          ls dist/assets/ | grep -q "atlas-neighbors"
+          echo "dist verified."
+
+      # ---------------------------------------------------------------
+      # 5. Deploy — only reached when EVERY gate above passed
+      # ---------------------------------------------------------------
       - name: Deploy to GitHub Pages
-        uses: JamesIves/github-pages-deploy-action@v4.8.0
+        uses: JamesIves/github-pages-deploy-action@d92aa235d04922e8f08b40ce78cc5442fcfbfa2f # v4.8.0 (immutable SHA)
         with:
           folder: dist
           branch: gh-pages
+          clean: false

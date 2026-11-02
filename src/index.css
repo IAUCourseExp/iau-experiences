@@ -4,42 +4,126 @@
   --font-sans: "Vazirmatn", ui-sans-serif, system-ui, sans-serif;
 }
 
+/*
+ * Self-hosted Vazirmatn — only the five weights the UI actually uses
+ * (400/500/700/800/900, ~51 KB each; browsers download just what renders).
+ * Replaces both the CDN font-face stylesheet and the old duplicated
+ * Medium-only @font-face (baseline CSS-002 / FONT-001).
+ * Vazirmatn is licensed under the SIL OFL 1.1 (see src/assets/fonts/OFL.txt).
+ */
 @font-face {
   font-family: 'Vazirmatn';
-  src: url('https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/fonts/webfonts/Vazirmatn-Medium.woff2') format('woff2');
-  font-weight: normal;
+  src: url('./assets/fonts/Vazirmatn-Regular.woff2') format('woff2');
+  font-weight: 400;
   font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('./assets/fonts/Vazirmatn-Medium.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('./assets/fonts/Vazirmatn-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('./assets/fonts/Vazirmatn-ExtraBold.woff2') format('woff2');
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('./assets/fonts/Vazirmatn-Black.woff2') format('woff2');
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
 }
 
 @layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
   html, body {
-    font-family: "Vazirmatn", sans-serif;
-    -webkit-text-size-adjust: 100%; 
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    font-family: "Vazirmatn", ui-sans-serif, system-ui, sans-serif;
+    /* Paint the page background before React mounts to avoid a white flash */
+    background-color: #f4f7fb;
+  }
+
+  body {
     @apply antialiased selection:bg-blue-100 selection:text-blue-900;
+  }
+
+  /* Comfortable, consistent keyboard focus everywhere */
+  :focus-visible {
+    outline: 2px solid rgb(59 130 246 / 0.6);
+    outline-offset: 2px;
   }
 }
 
-.os-theme-dark {
-  --os-handle-bg: rgba(59, 130, 246, 0.5);
-  --os-handle-bg-hover: rgba(59, 130, 246, 0.8);
-  --os-handle-bg-active: rgba(37, 99, 235, 1);
-  --os-size: 8px;
+/*
+ * Thin custom scrollbars for desktop (identity preserved after removing the
+ * OverlayScrollbars dependency). Touch devices keep their native scrollbars.
+ */
+@media (pointer: fine) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(148 163 184 / 0.55) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: rgb(148 163 184 / 0.55);
+    border-radius: 8px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgb(100 116 139 / 0.75);
+  }
 }
 
-html, body {
-  margin: 0;
-  padding: 0;
-  width: 100%;
+/*
+ * The search fields are type="search"; hide the WebKit-native clear affordance
+ * so the app has exactly one, accessible clear control (baseline SRCH-004).
+ */
+.search-input::-webkit-search-cancel-button,
+.search-input::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
 }
 
-nav {
-  width: 100% !important;
-  display: flex !important;
-  justify-content: center !important;
+/* Long Persian/English strings must never blow out the layout */
+.overflow-wrap-anywhere {
+  overflow-wrap: anywhere;
 }
 
-nav .max-w-7xl {
-  width: 100% !important;
-  max-width: 1280px !important;
-  margin: 0 auto !important;
+/* Honor prefers-reduced-motion globally (micro-interactions become instant) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

@@ -1,0 +1,6 @@
+# Phase IV NLP build environment — pinned for reproducibility (mission §23.3).
+# Separate from the scraper's Python 3.9 runtime (scraper keeps `requests` only).
+# Installed in CI via tools/requirements-nlp.txt → actions/setup-python 3.12.
+scikit-learn==1.9.0
+numpy==1.26.4
+scipy==1.16.2
