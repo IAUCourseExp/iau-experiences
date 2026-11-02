@@ -19,14 +19,14 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-// Portable Node/npm resolution — no hardcoded machine paths
-const NPM_CMD = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-const NPX_CMD = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+const isWin = process.platform === 'win32';
+const NPM_CMD = isWin ? 'npm.cmd' : 'npm';
+const NPX_CMD = isWin ? 'npx.cmd' : 'npx';
 let step = 0;
 const failures = [];
 let drift = null;
@@ -44,7 +44,37 @@ function run(name, fn) {
 }
 
 function git(args) {
-  return execFileSync('git', args, { cwd: ROOT, encoding: 'utf8' }).trim();
+  const result = spawnSync('git', args, { cwd: ROOT, encoding: 'utf8', shell: false });
+  if (result.error) throw result.error;
+  if (result.status !== 0) throw new Error(result.stderr?.toString() || 'git command failed');
+  return result.stdout.trim();
+}
+
+function runCommand(cmd, args) {
+  let result;
+  if (isWin) {
+    // On Windows, use cmd.exe /c explicitly to avoid shell: true deprecation warning
+    const fullCmd = [cmd, ...args].map(a => a.includes(' ') ? `"${a}"` : a).join(' ');
+    result = spawnSync('cmd.exe', ['/c', fullCmd], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      shell: false,
+      windowsVerbatimArguments: true
+    });
+  } else {
+    result = spawnSync(cmd, args, {
+      cwd: ROOT,
+      encoding: 'utf8',
+      shell: false
+    });
+  }
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    const stderr = result.stderr?.toString() || '';
+    const stdout = result.stdout?.toString() || '';
+    throw new Error(stderr || stdout || `${cmd} exited with code ${result.status}`);
+  }
+  return result.stdout;
 }
 
 // 1. Git state
@@ -73,11 +103,11 @@ run('.gitignore excludes secrets/caches/weights/node_modules', () => {
 
 // 3. lint + unit tests
 run('lint', () => {
-  execFileSync(NPM_CMD, ['run', 'lint'], { cwd: ROOT, stdio: 'pipe', shell: true });
+  runCommand(NPM_CMD, ['run', 'lint']);
   return 'clean';
 });
 run('unit tests', () => {
-  execFileSync(NPX_CMD, ['vitest', 'run'], { cwd: ROOT, stdio: 'pipe', shell: true });
+  runCommand(NPX_CMD, ['vitest', 'run']);
   return 'all passed';
 });
 
@@ -159,7 +189,7 @@ run('dataset↔atlas binding (drift fingerprint)', () => {
 
 // 5. production build
 run('production build', () => {
-  execFileSync(NPM_CMD, ['run', 'build'], { cwd: ROOT, stdio: 'pipe', shell: true });
+  runCommand(NPM_CMD, ['run', 'build']);
   return 'dist built';
 });
 

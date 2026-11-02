@@ -26,15 +26,13 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PREFLIGHT_MARKER = path.join(ROOT, 'audit-artifacts', 'preflight-passed.json');
 const MAX_PREFLIGHT_AGE_MS = 2 * 60 * 60 * 1000; // 2 hours
 
-// Cross-platform Node/npm/npx/gh-pages resolution
-function resolveBin(name) {
-  const isWin = process.platform === 'win32';
-  const ext = isWin ? '.cmd' : '';
-  // Prefer local node_modules/.bin
-  const local = path.join(ROOT, 'node_modules', '.bin', name + ext);
-  if (fs.existsSync(local)) return local;
-  // Fall back to npx (will use lockfile-pinned version)
-  return isWin ? 'npx.cmd' : 'npx';
+// Get local gh-pages CLI path; abort if not present
+function getGhPagesCli() {
+  const cliPath = path.join(ROOT, 'node_modules', 'gh-pages', 'bin', 'gh-pages.js');
+  if (!fs.existsSync(cliPath)) {
+    fail(`gh-pages CLI not found at ${cliPath}. Run: npm ci`);
+  }
+  return cliPath;
 }
 
 function git(args, opts = {}) {
@@ -186,17 +184,11 @@ console.log('[ship] pushed.');
 // 6. deploy the validated dist to gh-pages
 console.log('[ship] deploying dist to gh-pages...');
 
-// Use locally installed gh-pages (pinned in package.json) via npx or direct bin
-const ghPagesBin = resolveBin('gh-pages');
+// Invoke local gh-pages CLI directly via Node.js (process.execPath) — no npx fallback
+const ghPagesCli = path.join(ROOT, 'node_modules', 'gh-pages', 'bin', 'gh-pages.js');
 const ghPagesArgs = ['-d', 'dist', '-m', `Pages deploy ${marker.driftFingerprint?.slice(0, 8) ?? ''}`];
 
-if (ghPagesBin.endsWith('npx.cmd') || ghPagesBin.endsWith('npx')) {
-  // npx will use the lockfile-pinned version
-  execFileSync(ghPagesBin, ['gh-pages', ...ghPagesArgs], { cwd: ROOT, stdio: 'inherit' });
-} else {
-  // Direct binary
-  execFileSync(ghPagesBin, ghPagesArgs, { cwd: ROOT, stdio: 'inherit' });
-}
+execFileSync(process.execPath, [ghPagesCli, ...ghPagesArgs], { cwd: ROOT, stdio: 'inherit' });
 
 console.log('[ship] deployed. GitHub Pages will serve the new build shortly.');
 console.log('[ship] DONE — released by the owner.');
