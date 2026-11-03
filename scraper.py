@@ -796,22 +796,6 @@ def write_database(
     )
 
 
-def write_last_update():
-
-    update_info = {
-        "last_update": iran_time_string()
-    }
-
-    atomic_write_json(
-        "src/last_update.json",
-        update_info
-    )
-
-    log(
-        "✅ src/last_update.json updated."
-    )
-
-
 # ============================================================
 # CHANNEL VALIDATION
 # ============================================================
@@ -1760,8 +1744,6 @@ def scrape_with_bot():
             run_new_entries.extend(
                 batch_new_entries
             )
-
-            write_last_update()
 
         else:
 

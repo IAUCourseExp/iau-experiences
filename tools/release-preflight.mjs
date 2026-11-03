@@ -19,14 +19,16 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { sha256File, computeDirHash } from './release-ship-core.mjs';
+import { RELEASE_FILES } from './release-allowlist.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const isWin = process.platform === 'win32';
-const NPM_CMD = isWin ? 'npm.cmd' : 'npm';
-const NPX_CMD = isWin ? 'npx.cmd' : 'npx';
+// Portable Node/npm resolution — no hardcoded machine paths
+const NPM_CMD = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+const NPX_CMD = process.platform === 'win32' ? 'npx.cmd' : 'npx';
 let step = 0;
 const failures = [];
 let drift = null;
@@ -44,37 +46,7 @@ function run(name, fn) {
 }
 
 function git(args) {
-  const result = spawnSync('git', args, { cwd: ROOT, encoding: 'utf8', shell: false });
-  if (result.error) throw result.error;
-  if (result.status !== 0) throw new Error(result.stderr?.toString() || 'git command failed');
-  return result.stdout.trim();
-}
-
-function runCommand(cmd, args) {
-  let result;
-  if (isWin) {
-    // On Windows, use cmd.exe /c explicitly to avoid shell: true deprecation warning
-    const fullCmd = [cmd, ...args].map(a => a.includes(' ') ? `"${a}"` : a).join(' ');
-    result = spawnSync('cmd.exe', ['/c', fullCmd], {
-      cwd: ROOT,
-      encoding: 'utf8',
-      shell: false,
-      windowsVerbatimArguments: true
-    });
-  } else {
-    result = spawnSync(cmd, args, {
-      cwd: ROOT,
-      encoding: 'utf8',
-      shell: false
-    });
-  }
-  if (result.error) throw result.error;
-  if (result.status !== 0) {
-    const stderr = result.stderr?.toString() || '';
-    const stdout = result.stdout?.toString() || '';
-    throw new Error(stderr || stdout || `${cmd} exited with code ${result.status}`);
-  }
-  return result.stdout;
+  return execFileSync('git', args, { cwd: ROOT, encoding: 'utf8' }).trim();
 }
 
 // 1. Git state
@@ -103,11 +75,11 @@ run('.gitignore excludes secrets/caches/weights/node_modules', () => {
 
 // 3. lint + unit tests
 run('lint', () => {
-  runCommand(NPM_CMD, ['run', 'lint']);
+  execFileSync(NPM_CMD, ['run', 'lint'], { cwd: ROOT, stdio: 'pipe', shell: true });
   return 'clean';
 });
 run('unit tests', () => {
-  runCommand(NPX_CMD, ['vitest', 'run']);
+  execFileSync(NPX_CMD, ['vitest', 'run'], { cwd: ROOT, stdio: 'pipe', shell: true });
   return 'all passed';
 });
 
@@ -162,7 +134,7 @@ function joinBytes(byteArrays) {
 // 4. dataset↔artifact binding — compute drift fingerprint directly here
 run('dataset↔atlas binding (drift fingerprint)', () => {
   const data = JSON.parse(fs.readFileSync(path.join(ROOT, 'src/data.json'), 'utf8'));
-  
+
   // Recompute drift fingerprint identically to schema.js
   const hashParts = [];
   for (let index = 0; index < data.length; index++) {
@@ -179,7 +151,7 @@ run('dataset↔atlas binding (drift fingerprint)', () => {
     hashParts.push(canonicalBytes);
   }
   drift = fnv1a64(joinBytes(hashParts));
-  
+
   const topics = JSON.parse(fs.readFileSync(path.join(ROOT, 'src/derived/atlas-topics.json'), 'utf8'));
   if (topics.manifest.datasetDriftFingerprint !== drift) {
     throw new Error('atlas-topics.json is stale relative to src/data.json — run: python tools/nlp_pipeline.py');
@@ -189,7 +161,7 @@ run('dataset↔atlas binding (drift fingerprint)', () => {
 
 // 5. production build
 run('production build', () => {
-  runCommand(NPM_CMD, ['run', 'build']);
+  execFileSync(NPM_CMD, ['run', 'build'], { cwd: ROOT, stdio: 'pipe', shell: true });
   return 'dist built';
 });
 
@@ -230,15 +202,6 @@ function walkSize(dir) {
   return total;
 }
 
-function computeDirHash(dirpath) {
-  if (!fs.existsSync(dirpath)) return null;
-  const files = fs.readdirSync(dirpath).sort();
-  const hashes = files
-    .filter(f => fs.statSync(path.join(dirpath, f)).isFile())
-    .map(f => crypto.createHash('sha256').update(fs.readFileSync(path.join(dirpath, f))).digest('hex'));
-  return crypto.createHash('sha256').update(hashes.join('|')).digest('hex');
-}
-
 console.log('');
 if (failures.length) {
   console.error(`PREFLIGHT FAILED (${failures.length} gate${failures.length > 1 ? 's' : ''}):`);
@@ -248,16 +211,16 @@ if (failures.length) {
 } else {
   console.log('PREFLIGHT PASSED — all release gates satisfied.');
   console.log('Next: npm run release-ship (stage, commit, push, deploy). The owner runs this.');
-  
+
   // Write preflight marker for release-ship (binds exact working tree)
   const markerDir = path.join(ROOT, 'audit-artifacts');
   if (!fs.existsSync(markerDir)) fs.mkdirSync(markerDir, { recursive: true });
-  
+
   // Working tree fingerprint (tracked + untracked relevant files)
   const gitStatus = git(['status', '--porcelain']);
   const dirty = gitStatus.trim().length > 0;
   const changedFiles = gitStatus.trim() ? gitStatus.trim().split('\n').map(l => l.trim().slice(3)) : [];
-  
+
   const marker = {
     passedAt: Date.now(),
     driftFingerprint: drift,
@@ -267,26 +230,32 @@ if (failures.length) {
     dirty,
     changedFiles: changedFiles.slice(0, 50), // cap
     protectedHashes: {
-      scraper: fs.existsSync(path.join(ROOT, 'scraper.py')) ? 
+      scraper: fs.existsSync(path.join(ROOT, 'scraper.py')) ?
         crypto.createHash('sha256').update(fs.readFileSync(path.join(ROOT, 'scraper.py'))).digest('hex') : null,
-      data: fs.existsSync(path.join(ROOT, 'src/data.json')) ? 
+      data: fs.existsSync(path.join(ROOT, 'src/data.json')) ?
         crypto.createHash('sha256').update(fs.readFileSync(path.join(ROOT, 'src/data.json'))).digest('hex') : null,
-      lastUpdate: fs.existsSync(path.join(ROOT, 'src/last_update.json')) ? 
+      lastUpdate: fs.existsSync(path.join(ROOT, 'src/last_update.json')) ?
         crypto.createHash('sha256').update(fs.readFileSync(path.join(ROOT, 'src/last_update.json'))).digest('hex') : null,
     },
     packageLockHash: fs.existsSync(path.join(ROOT, 'package-lock.json')) ?
       crypto.createHash('sha256').update(fs.readFileSync(path.join(ROOT, 'package-lock.json'))).digest('hex') : null,
+    packageJsonHash: fs.existsSync(path.join(ROOT, 'package.json')) ?
+      crypto.createHash('sha256').update(fs.readFileSync(path.join(ROOT, 'package.json'))).digest('hex') : null,
     workflowHash: fs.existsSync(path.join(ROOT, '.github/workflows/Main.yml')) ?
       crypto.createHash('sha256').update(fs.readFileSync(path.join(ROOT, '.github/workflows/Main.yml'))).digest('hex') : null,
-    toolVersion: '1.0.0',
+    // Fingerprint of the exact build output this preflight validated; the ship
+    // step recomputes it so a stale or regenerated dist can never deploy.
+    distHash: computeDirHash(path.join(ROOT, 'dist')),
+    // Per-file hashes of the authorized release allowlist; the ship step
+    // recomputes them so any post-preflight edit of a to-be-released file
+    // aborts before staging, committing, pushing, or deploying.
+    releaseFileHashes: Object.fromEntries(RELEASE_FILES.map((relPath) => {
+      const absolute = path.join(ROOT, relPath);
+      return [relPath, fs.existsSync(absolute) ? sha256File(absolute) : null];
+    })),
+    toolVersion: '1.1.0',
     maxAgeMs: 2 * 60 * 60 * 1000,
   };
   fs.writeFileSync(path.join(markerDir, 'preflight-passed.json'), JSON.stringify(marker, null, 2));
   console.log('[preflight] marker written to audit-artifacts/preflight-passed.json');
-  
-  // Also add dist build fingerprint for ship verification
-  const distHash = computeDirHash(path.join(ROOT, 'dist'));
-  const markerWithDist = JSON.parse(fs.readFileSync(path.join(markerDir, 'preflight-passed.json'), 'utf8'));
-  markerWithDist.distHash = distHash;
-  fs.writeFileSync(path.join(markerDir, 'preflight-passed.json'), JSON.stringify(markerWithDist, null, 2));
 }

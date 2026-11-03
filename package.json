@@ -16,7 +16,7 @@
     "nlp:build": "python tools/nlp_pipeline.py --data src/data.json --out src/derived/atlas.json --summary audit-artifacts/phase-4/pipeline-summary.json",
     "release-preflight": "node tools/release-preflight.mjs",
     "release-ship": "node tools/release-ship.mjs",
-    "deploy-all": "npm run release-preflight && npm run release-ship"
+    "deploy-all": "node tools/write-release-time.mjs && npm run release-preflight && npm run release-ship"
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4.1.18",
@@ -35,7 +35,7 @@
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
-    "gh-pages": "^6.3.0",
+    "gh-pages": "6.3.0",
     "globals": "^16.5.0",
     "jsdom": "^30.1.3",
     "postcss": "^8.5.6",

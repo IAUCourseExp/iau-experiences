@@ -181,6 +181,7 @@ export default function ExplorerView({ searchable, datasetChecksum, onOpenExperi
   const [profFilter, setProfFilter] = useState('');
   const [courseFilter, setCourseFilter] = useState('');
   const [knownScoreOnly, setKnownScoreOnly] = useState(false);
+  const [studentScoreOnly, setStudentScoreOnly] = useState(false);
   const [visibleCount, setVisibleCount] = useState(30);
   const [atlasState, setAtlasState] = useState({ status: 'loading', artifact: null, binding: null });
   const [expandedTopic, setExpandedTopic] = useState(null);
@@ -232,11 +233,20 @@ export default function ExplorerView({ searchable, datasetChecksum, onOpenExperi
     } else {
       list = searchFullText(searchable, textIndex, appliedQuery);
     }
-    if (knownScoreOnly) list = list.filter((r) => r.item._professorScore != null);
-    if (profFilter) list = list.filter((r) => r.item._professorNorm === profFilter);
-    if (courseFilter) list = list.filter((r) => r.item._courseNorm === courseFilter);
+    if (knownScoreOnly) {
+      list = list.filter((r) => r.item._professorScore != null);
+    }
+    if (studentScoreOnly) {
+      list = list.filter((r) => r.item._studentScore != null);
+    }
+    if (profFilter) {
+      list = list.filter((r) => r.item._professorNorm === profFilter);
+    }
+    if (courseFilter) {
+      list = list.filter((r) => r.item._courseNorm === courseFilter);
+    }
     return list;
-  }, [searchable, textIndex, appliedQuery, knownScoreOnly, profFilter, courseFilter]);
+  }, [searchable, textIndex, appliedQuery, knownScoreOnly, studentScoreOnly, profFilter, courseFilter]);
 
   const facetOptions = useMemo(() => {
     let list;
@@ -245,7 +255,12 @@ export default function ExplorerView({ searchable, datasetChecksum, onOpenExperi
     } else {
       list = searchFullText(searchable, textIndex, appliedQuery);
     }
-    if (knownScoreOnly) list = list.filter((r) => r.item._professorScore != null);
+    if (knownScoreOnly) {
+      list = list.filter((r) => r.item._professorScore != null);
+    }
+    if (studentScoreOnly) {
+      list = list.filter((r) => r.item._studentScore != null);
+    }
     const profs = new Map();
     const courses = new Map();
     for (const r of list) {
@@ -256,13 +271,14 @@ export default function ExplorerView({ searchable, datasetChecksum, onOpenExperi
     }
     const toSorted = (m) => [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'fa'));
     return { professors: toSorted(profs), courses: toSorted(courses) };
-  }, [searchable, textIndex, appliedQuery, knownScoreOnly]);
+  }, [searchable, textIndex, appliedQuery, knownScoreOnly, studentScoreOnly]);
 
-  const hasActiveFilters = knownScoreOnly || profFilter || courseFilter;
+  const hasActiveFilters = knownScoreOnly || studentScoreOnly || profFilter || courseFilter;
   const totalDocs = searchable.length;
 
   function clearFilters() {
     setKnownScoreOnly(false);
+    setStudentScoreOnly(false);
     setProfFilter('');
     setCourseFilter('');
   }
@@ -309,61 +325,6 @@ export default function ExplorerView({ searchable, datasetChecksum, onOpenExperi
             : `${fa(results.length)} نتیجه یافت شد`}
         </p>
       </div>
-
-      {/* Semantic Atlas (corpus-derived, build-time) */}
-      <section aria-label="اطلس موضوعی معنایی" className="mb-6">
-        <div className="flex items-center gap-2 mb-2">
-          <Sparkles size={15} className="text-indigo-500" aria-hidden="true" />
-          <h2 className="text-xs font-black text-slate-600">موضوعات کشف‌شده از متن تجربه‌ها</h2>
-        </div>
-
-        {atlasState.status === 'loading' && (
-          <div className="flex items-center gap-2 text-xs font-bold text-slate-400 bg-white border border-slate-100 rounded-2xl p-4" role="status">
-            <span className="w-4 h-4 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" aria-hidden="true" />
-            در حال بارگذاری اطلس موضوعی...
-          </div>
-        )}
-
-        {atlasState.status === 'error' && (
-          <p className="text-[11px] font-bold text-slate-500 bg-slate-50 border border-slate-100 rounded-2xl p-4 leading-5">
-            اطلس موضوعی در دسترس نیست. جست‌وجوی متنی زیر کاملاً فعال است.
-          </p>
-        )}
-
-        {atlasState.status === 'ready' && !atlasState.binding.bound && (
-          <p className="text-[11px] font-bold text-slate-500 bg-slate-50 border border-slate-100 rounded-2xl p-4 leading-5">
-            نسخه‌ی اطلس موضوعی با داده‌های فعلی هم‌خوانی ندارد
-            {atlasState.binding.reason === 'dataset-checksum-mismatch' ? ' (داده‌ها به‌روز شده‌اند اما تولید مجددِ اطلس انجام نشده)' : ''}
-            . برای جلوگیری از نمایش موضوعات قدیمی، این بخش موقتاً غیرفعال است و جست‌وجوی متنی زیر فعال است.
-          </p>
-        )}
-
-        {atlasState.status === 'ready' && atlasState.binding.bound && atlasState.binding.mode === 'lexical-fallback' && (
-          <p className="text-[11px] font-bold text-slate-500 bg-slate-50 border border-slate-100 rounded-2xl p-4 leading-5">
-            در آخرین تولید، خوشه‌بندی معنایی به آستانه‌های کیفیت نرسید؛ به‌جای موضوعاتِ غیرقابل‌اتکا، جست‌وجوی متنی دقیق در دسترس شماست.
-          </p>
-        )}
-
-        {topicsReady && (
-          <>
-            <p className="text-[10px] font-bold text-slate-400 mb-3 leading-5 flex items-start gap-1.5">
-              <Info size={13} className="shrink-0 mt-0.5" aria-hidden="true" />
-              {fa(topicsList.length)} موضوع از خوشه‌بندی خودکار متن {fa(totalDocs)} تجربه ساخته شده (بدون فهرست دستی). برچسب‌ها خودکار و بازبینی‌نشده‌اند؛ هر موضوع را با واژه‌ها و نمونه‌هایش بسنجید.
-            </p>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-              {topicsList.map((topic) => (
-                <TopicCard
-                  key={topic.id}
-                  topic={topic}
-                  expanded={expandedTopic === topic.id}
-                  onToggle={() => setExpandedTopic(expandedTopic === topic.id ? null : topic.id)}
-                  onShowExperiences={() => selectTopic(topic)}
-                />
-              ))}
-            </div>
-          </>
-        )}
-      </section>
 
       {/* Topic member mode */}
       {listIsTopicMode && (
@@ -434,6 +395,7 @@ export default function ExplorerView({ searchable, datasetChecksum, onOpenExperi
           {/* Filters */}
           <div className="flex flex-wrap items-center gap-2 mb-4">
             <button
+              id="filter-professor-score"
               type="button"
               onClick={() => { setKnownScoreOnly((v) => !v); setVisibleCount(30); }}
               aria-pressed={knownScoreOnly}
@@ -442,7 +404,20 @@ export default function ExplorerView({ searchable, datasetChecksum, onOpenExperi
               }`}
             >
               {knownScoreOnly && <Check size={13} aria-hidden="true" />}
-              فقط امتیازدار
+              فقط امتیاز استاد
+            </button>
+
+            <button
+              id="filter-student-score"
+              type="button"
+              onClick={() => { setStudentScoreOnly((v) => !v); setVisibleCount(30); }}
+              aria-pressed={studentScoreOnly}
+              className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-[11px] font-bold border transition-all min-h-[40px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 ${
+                studentScoreOnly ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'
+              }`}
+            >
+              {studentScoreOnly && <Check size={13} aria-hidden="true" />}
+              فقط دارای نمره دانشجو
             </button>
 
             <label className="sr-only" htmlFor="filter-prof">فیلتر استاد</label>
@@ -480,6 +455,26 @@ export default function ExplorerView({ searchable, datasetChecksum, onOpenExperi
                 پاک کردن فیلترها
               </button>
             )}
+          </div>
+
+          {/* Keyword discovery (corpus-derived frequency, fixed algorithm) */}
+          <div className="mt-4 mb-6">
+            <h2 className="text-xs font-black text-slate-600 mb-2">کلیدواژه‌های پرتکرار در تجربه‌ها</h2>
+            <p className="text-[10px] font-bold text-slate-400 mb-3 leading-5">
+              پرتکرارترین واژه‌های معنادار متن تجربه‌ها؛ با انتخاب هر واژه، نتایج همان واژه نمایش داده می‌شود.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {keywords.map((k) => (
+                <button
+                  key={k.token}
+                  type="button"
+                  onClick={() => { handleSearchInput(k.token); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                  className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-[11px] font-bold text-slate-600 hover:border-blue-200 hover:text-blue-700 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+                >
+                  {k.token} <span className="text-slate-400">{fa(k.count)}</span>
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Results */}
@@ -522,28 +517,63 @@ export default function ExplorerView({ searchable, datasetChecksum, onOpenExperi
               </button>
             </div>
           )}
-
-          {/* Keyword discovery (corpus-derived frequency, fixed algorithm) */}
-          <div className="mt-10">
-            <h2 className="text-xs font-black text-slate-600 mb-2">کلیدواژه‌های پرتکرار در تجربه‌ها</h2>
-            <p className="text-[10px] font-bold text-slate-400 mb-3 leading-5">
-              پرتکرارترین واژه‌های معنادار متن تجربه‌ها؛ با انتخاب هر واژه، نتایج همان واژه نمایش داده می‌شود.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {keywords.map((k) => (
-                <button
-                  key={k.token}
-                  type="button"
-                  onClick={() => { handleSearchInput(k.token); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-                  className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-[11px] font-bold text-slate-600 hover:border-blue-200 hover:text-blue-700 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
-                >
-                  {k.token} <span className="text-slate-400">{fa(k.count)}</span>
-                </button>
-              ))}
-            </div>
-          </div>
         </>
       )}
+
+      {/* Semantic Atlas (corpus-derived, build-time) */}
+      <section aria-label="اطلس موضوعی معنایی" className="mt-10">
+        <div className="flex items-center gap-2 mb-2">
+          <Sparkles size={15} className="text-indigo-500" aria-hidden="true" />
+          <h2 className="text-xs font-black text-slate-600">موضوعات کشف‌شده از متن تجربه‌ها</h2>
+        </div>
+
+        {atlasState.status === 'loading' && (
+          <div className="flex items-center gap-2 text-xs font-bold text-slate-400 bg-white border border-slate-100 rounded-2xl p-4" role="status">
+            <span className="w-4 h-4 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" aria-hidden="true" />
+            در حال بارگذاری اطلس موضوعی...
+          </div>
+        )}
+
+        {atlasState.status === 'error' && (
+          <p className="text-[11px] font-bold text-slate-500 bg-slate-50 border border-slate-100 rounded-2xl p-4 leading-5">
+            اطلس موضوعی در دسترس نیست. جست‌وجوی متنی زیر کاملاً فعال است.
+          </p>
+        )}
+
+        {atlasState.status === 'ready' && !atlasState.binding.bound && (
+          <p className="text-[11px] font-bold text-slate-500 bg-slate-50 border border-slate-100 rounded-2xl p-4 leading-5">
+            نسخه‌ی اطلس موضوعی با داده‌های فعلی هم‌خوانی ندارد
+            {atlasState.binding.reason === 'dataset-checksum-mismatch' ? ' (داده‌ها به‌روز شده‌اند اما تولید مجددِ اطلس انجام نشده)' : ''}
+            . برای جلوگیری از نمایش موضوعات قدیمی، این بخش موقتاً غیرفعال است و جست‌وجوی متنی زیر فعال است.
+          </p>
+        )}
+
+        {atlasState.status === 'ready' && atlasState.binding.bound && atlasState.binding.mode === 'lexical-fallback' && (
+          <p className="text-[11px] font-bold text-slate-500 bg-slate-50 border border-slate-100 rounded-2xl p-4 leading-5">
+            در آخرین تولید، خوشه‌بندی معنایی به آستانه‌های کیفیت نرسید؛ به‌جای موضوعاتِ غیرقابل‌اتکا، جست‌وجوی متنی دقیق در دسترس شماست.
+          </p>
+        )}
+
+        {topicsReady && (
+          <>
+            <p className="text-[10px] font-bold text-slate-400 mb-3 leading-5 flex items-start gap-1.5">
+              <Info size={13} className="shrink-0 mt-0.5" aria-hidden="true" />
+              {fa(topicsList.length)} موضوع از خوشه‌بندی خودکار متن {fa(totalDocs)} تجربه ساخته شده (بدون فهرست دستی). برچسب‌ها خودکار و بازبینی‌نشده‌اند؛ هر موضوع را با واژه‌ها و نمونه‌هایش بسنجید.
+            </p>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              {topicsList.map((topic) => (
+                <TopicCard
+                  key={topic.id}
+                  topic={topic}
+                  expanded={expandedTopic === topic.id}
+                  onToggle={() => setExpandedTopic(expandedTopic === topic.id ? null : topic.id)}
+                  onShowExperiences={() => selectTopic(topic)}
+                />
+              ))}
+            </div>
+          </>
+        )}
+      </section>
     </div>
   );
 }

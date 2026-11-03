@@ -7,7 +7,7 @@ import { defineConfig, globalIgnores } from 'eslint/config'
 export default defineConfig([
   globalIgnores(['dist', 'audit-artifacts', 'test-results', 'playwright-report']),
   {
-    files: ['**/*.{js,jsx}'],
+    files: ['src/**/*.{js,jsx}', '*.config.js'],
     extends: [
       js.configs.recommended,
       reactHooks.configs.flat.recommended,
@@ -28,9 +28,25 @@ export default defineConfig([
   },
   {
     // Test tooling runs in Node (Playwright, Vitest config files)
-    files: ['tests/**/*.js', '*.config.js'],
+    files: ['tests/**/*.js', '*.config.js', 'tools/**/*.mjs', 'tools/matrix/**/*.mjs'],
     languageOptions: {
       globals: { ...globals.node },
+    },
+    rules: {
+      'no-unused-vars': ['error', { 
+        varsIgnorePattern: '^(_|_t|[A-Z]).*$',
+        argsIgnorePattern: '^(_|_t|[A-Z])$'
+      }],
+    },
+  },
+  {
+    // Matrix validation tooling - development tools only
+    files: ['tools/matrix/**/*.mjs'],
+    languageOptions: {
+      globals: { ...globals.node },
+    },
+    rules: {
+      'no-unused-vars': 'off',
     },
   },
 ])

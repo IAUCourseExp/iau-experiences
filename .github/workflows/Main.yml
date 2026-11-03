@@ -10,7 +10,9 @@ name: Auto Scraper & Deploy
 
 on:
   schedule:
-    - cron: "30 20 * * *"
+    - cron: "59 23 * * 5"
+      timezone: "Asia/Tehran"
+
   workflow_dispatch:
 
 # Least privilege: only what the scraper commit/push and Pages deploy need.
@@ -55,9 +57,15 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add src/data.json src/last_update.json
-          git diff --staged --quiet || git commit -m "Automated update: New experiences data & Last_update timestamp"
-          git push origin main
+
+          git add src/data.json
+
+          if ! git diff --cached --quiet; then
+            git commit -m "Automated update: New experiences data"
+            git push origin main
+          else
+            echo "No source data changes to commit."
+          fi
 
       # ---------------------------------------------------------------
       # 2. NLP build — SEPARATE pinned Python 3.12 environment (mission §13.3)
@@ -115,6 +123,9 @@ jobs:
       - name: Unit tests
         run: npm test
 
+      - name: Generate Tehran publication timestamp
+        run: node tools/write-release-time.mjs
+
       - name: Production build
         run: npm run build
 
@@ -134,3 +145,24 @@ jobs:
           folder: dist
           branch: gh-pages
           clean: false
+
+      # ---------------------------------------------------------------
+      # 6. Record the timestamp ONLY after a successful publication.
+      #    The generation step (before the build) already bundled this
+      #    timestamp into dist; this commit just records it on main.
+      #    The concurrency group serializes runs, so a newer run cannot
+      #    interleave between the deploy and this push.
+      # ---------------------------------------------------------------
+      - name: Commit successful release timestamp
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add src/last_update.json
+
+          if ! git diff --cached --quiet; then
+            git commit -m "Automated update: successful Tehran publication timestamp"
+            git push origin main
+          else
+            echo "Timestamp is unchanged; no commit required."
+          fi

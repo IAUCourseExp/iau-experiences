@@ -188,6 +188,137 @@ export function buildProfiles(searchable) {
   };
 }
 
+/**
+ * Filter and sort the professor directory.
+ *
+ * Important:
+ * - Searches professor names and their associated course names.
+ * - Uses only valid parsed professor scores.
+ * - Never interprets missing scores as zero.
+ * - Average-score sorting prioritizes profiles with at least 5 valid scores.
+ * - This is descriptive browsing, not an official professor ranking.
+ */
+export function filterAndSortProfessors(
+  profiles,
+  {
+    query = '',
+    courseKey = '',
+    ratedOnly = false,
+    minValidScores = 0,
+    sortBy = 'experience',
+  } = {}
+) {
+  const normalizedQuery = normalizePersian(query);
+
+  const requestedMinimum = Number(minValidScores);
+  const minimum = Number.isFinite(requestedMinimum)
+    ? Math.max(0, requestedMinimum)
+    : 0;
+
+  const getValidCount = (profile) =>
+    profile.professorStats?.validCount ?? 0;
+
+  const getAverage = (profile) =>
+    profile.professorStats?.avg ?? null;
+
+  const compareName = (a, b) =>
+    a.name.localeCompare(b.name, 'fa') ||
+    a.key.localeCompare(b.key);
+
+  const compareExperienceCount = (a, b) =>
+    b.totalCount - a.totalCount ||
+    compareName(a, b);
+
+  const compareScore = (a, b, direction) => {
+    const aCount = getValidCount(a);
+    const bCount = getValidCount(b);
+
+    const aReliable = aCount >= 5;
+    const bReliable = bCount >= 5;
+
+    // A profile with at least 5 valid scores is considered first.
+    // This avoids placing a 1-score profile above a 20-score profile
+    // merely because its average happens to be higher.
+    if (aReliable !== bReliable) {
+      return aReliable ? -1 : 1;
+    }
+
+    const aAverage = getAverage(a);
+    const bAverage = getAverage(b);
+
+    if (aAverage == null && bAverage != null) return 1;
+    if (aAverage != null && bAverage == null) return -1;
+
+    if (aAverage !== bAverage) {
+      return direction * (aAverage - bAverage);
+    }
+
+    return (
+      bCount - aCount ||
+      compareExperienceCount(a, b)
+    );
+  };
+
+  const filtered = profiles.filter((profile) => {
+    if (normalizedQuery) {
+      const searchableText = [
+        profile.name,
+        ...profile.courses.map((course) => course.name),
+      ]
+        .map(normalizePersian)
+        .join(' ');
+
+      if (!searchableText.includes(normalizedQuery)) {
+        return false;
+      }
+    }
+
+    if (
+      courseKey &&
+      !profile.courses.some((course) => course.key === courseKey)
+    ) {
+      return false;
+    }
+
+    const validCount = getValidCount(profile);
+
+    if (ratedOnly && validCount === 0) {
+      return false;
+    }
+
+    if (validCount < minimum) {
+      return false;
+    }
+
+    return true;
+  });
+
+  filtered.sort((a, b) => {
+    switch (sortBy) {
+      case 'score-high':
+        return compareScore(a, b, -1);
+
+      case 'score-low':
+        return compareScore(a, b, 1);
+
+      case 'score-count':
+        return (
+          getValidCount(b) - getValidCount(a) ||
+          compareExperienceCount(a, b)
+        );
+
+      case 'name':
+        return compareName(a, b);
+
+      case 'experience':
+      default:
+        return compareExperienceCount(a, b);
+    }
+  });
+
+  return filtered;
+}
+
 /** Index profiles by their stable normalized key for O(1) deep-link lookup. */
 export function indexByKey(profiles) {
   return new Map(profiles.map((p) => [p.key, p]));

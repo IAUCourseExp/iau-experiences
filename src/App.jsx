@@ -348,12 +348,12 @@ export default function App() {
                 id="search-desktop"
                 value={searchTerm}
                 onChange={handleSearchChange}
-                className="hidden md:block relative flex-1 max-w-md mx-8 min-w-0"
+                className="hidden xl:block relative flex-1 max-w-sm mx-4 min-w-0"
               />
             )}
 
-            {/* External links (≥ lg) */}
-            <div className="hidden lg:flex items-center gap-3 shrink-0">
+            {/* External links (≥ xl) */}
+            <div className="hidden xl:flex items-center gap-3 shrink-0">
               <div className="flex gap-1 bg-slate-50 p-1.5 rounded-2xl border border-slate-100">
                 {NAV_LINKS.slice(0, 2).map((link) => (
                   <a key={link.href} href={link.href} target="_blank" rel="noopener noreferrer"
@@ -370,19 +370,10 @@ export default function App() {
                   </a>
                 ))}
               </div>
-              {lastUpdate && (
-                <div className="hidden xl:flex items-center gap-2 px-4 py-2 bg-emerald-50/50 border border-emerald-100/50 rounded-2xl">
-                  <Calendar size={14} className="text-emerald-600" aria-hidden="true" />
-                  <div className="flex flex-col items-start">
-                    <span className="text-[10px] text-emerald-600 font-bold">آخرین بروزرسانی</span>
-                    <span id="last-update" className="text-[11px] text-emerald-800 font-black">{lastUpdate}</span>
-                  </div>
-                </div>
-              )}
             </div>
 
-            {/* Menu toggle (below lg) */}
-            <div className="lg:hidden shrink-0">
+            {/* Menu toggle (below xl) */}
+            <div className="xl:hidden shrink-0">
               <button
                 ref={menuButtonRef}
                 type="button"
@@ -400,17 +391,53 @@ export default function App() {
           {/* Section tabs */}
           <ViewTabs section={section} />
 
+          {/* Always-visible Tehran update time, aligned to the left edge */}
+          <div
+            className="w-full mt-2 flex justify-start"
+            dir="ltr"
+          >
+            <div className="inline-flex items-center gap-2 px-3 py-2 bg-emerald-50/70 border border-emerald-100/70 rounded-xl">
+              <Calendar
+                size={14}
+                className="text-emerald-600 shrink-0"
+                aria-hidden="true"
+              />
+
+              <span
+                dir="rtl"
+                className="text-[10px] text-emerald-700 font-bold"
+              >
+                آخرین بروزرسانی:
+              </span>
+
+              <time
+                id="last-update"
+                dir="ltr"
+                className="text-[11px] text-emerald-800 font-black tabular-nums"
+              >
+                {lastUpdate || 'نامشخص'}
+              </time>
+
+              <span
+                dir="rtl"
+                className="text-[10px] text-emerald-700 font-bold"
+              >
+                به وقت تهران
+              </span>
+            </div>
+          </div>
+
           {/* Mobile search — browse view only */}
           {browsing && (
             <SearchField
               id="search-mobile"
               value={searchTerm}
               onChange={handleSearchChange}
-              className="md:hidden mt-3 relative w-full"
+              className="xl:hidden mt-3 relative w-full"
             />
           )}
 
-          {/* Expanded menu (below lg) */}
+          {/* Expanded menu (below xl) */}
           <AnimatePresence>
             {isMenuOpen && (
               <MotionDiv
@@ -420,7 +447,7 @@ export default function App() {
                 animate={{ height: 'auto', opacity: 1 }}
                 exit={{ height: 0, opacity: 0 }}
                 transition={{ duration: 0.2 }}
-                className="lg:hidden overflow-hidden mt-3 flex flex-col gap-2 pt-3 border-t border-slate-100/80"
+                className="xl:hidden overflow-hidden mt-3 flex flex-col gap-2 pt-3 border-t border-slate-100/80"
               >
                 <div className="grid grid-cols-2 gap-2">
                   {NAV_LINKS.map((link) => (
@@ -431,12 +458,6 @@ export default function App() {
                     </a>
                   ))}
                 </div>
-                {lastUpdate && (
-                  <div className="flex items-center justify-center gap-2 p-3 mt-1 bg-emerald-50/70 rounded-xl text-xs mb-1">
-                    <Calendar size={14} className="text-emerald-600" aria-hidden="true" />
-                    <span className="text-emerald-800 font-bold">آخرین بروزرسانی: {lastUpdate}</span>
-                  </div>
-                )}
               </MotionDiv>
             )}
           </AnimatePresence>

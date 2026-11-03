@@ -5,7 +5,10 @@ import {
   SearchX, Users, FileText, ExternalLink, HelpCircle, ListChecks,
 } from 'lucide-react';
 import { normalizePersian } from '../lib/search.js';
-import { buildProfiles } from '../lib/profiles.js';
+import {
+  buildProfiles,
+  filterAndSortProfessors,
+} from '../lib/profiles.js';
 import { professorRoute, courseRoute, coursesListSearchLink } from '../lib/router.js';
 import DistributionChart from './DistributionChart.jsx';
 import ExperienceCard from './ExperienceCard.jsx';
@@ -98,10 +101,25 @@ function DirectoryRow({ profile, type }) {
           <span className="text-[10px] font-black text-blue-700 bg-blue-50 border border-blue-100/60 px-2 py-1 rounded-lg whitespace-nowrap">
             {fa(profile.totalCount)} تجربه
           </span>
-          {professorStats.avg != null && (
-            <span className="text-[10px] font-black text-amber-600 bg-amber-50 border border-amber-100/60 px-2 py-1 rounded-lg whitespace-nowrap">
+          {type === 'professor' && professorStats.avg != null && (
+            <span
+              className="text-[10px] font-black text-amber-600 bg-amber-50 border border-amber-100/60 px-2 py-1 rounded-lg whitespace-nowrap"
+              title={
+                professorStats.validCount < 5
+                  ? 'این میانگین بر اساس کمتر از ۵ امتیاز معتبر است و نمونه محدودی دارد.'
+                  : `میانگین بر اساس ${fa(professorStats.validCount)} امتیاز معتبر محاسبه شده است.`
+              }
+            >
               ★ {fa(professorStats.avg, 1)}
-              <span className="text-slate-400 font-bold"> ({fa(professorStats.validCount)})</span>
+              <span className="text-slate-400 font-bold">
+                {' '}({fa(professorStats.validCount)})
+              </span>
+
+              {professorStats.validCount < 5 && (
+                <span className="block text-amber-700 font-extrabold mt-0.5">
+                  نمونه محدود
+                </span>
+              )}
             </span>
           )}
         </div>
@@ -112,47 +130,245 @@ function DirectoryRow({ profile, type }) {
 
 function Directory({ profiles, type }) {
   const [query, setQuery] = useState('');
-  const q = normalizePersian(query);
+  const [courseFilter, setCourseFilter] = useState('');
+  const [ratedOnly, setRatedOnly] = useState(false);
+  const [minSample, setMinSample] = useState('0');
+  const [sortBy, setSortBy] = useState('experience');
+
+  const isProfessorDirectory = type === 'professor';
+
+  // Collect unique course options from the professor profiles.
+  const courseOptions = useMemo(() => {
+    if (!isProfessorDirectory) return [];
+
+    const map = new Map();
+
+    for (const profile of profiles) {
+      for (const course of profile.courses) {
+        if (!map.has(course.key)) {
+          map.set(course.key, {
+            key: course.key,
+            name: course.name,
+          });
+        }
+      }
+    }
+
+    return [...map.values()].sort((a, b) =>
+      a.name.localeCompare(b.name, 'fa')
+    );
+  }, [profiles, isProfessorDirectory]);
+
   const filtered = useMemo(() => {
-    if (!q) return profiles;
-    return profiles.filter((p) => normalizePersian(p.name).includes(q));
-  }, [profiles, q]);
+    if (isProfessorDirectory) {
+      return filterAndSortProfessors(profiles, {
+        query,
+        courseKey: courseFilter,
+        ratedOnly,
+        minValidScores: Number(minSample),
+        sortBy,
+      });
+    }
+
+    const normalizedQuery = normalizePersian(query);
+
+    return profiles.filter((profile) => {
+      if (!normalizedQuery) return true;
+
+      return normalizePersian(profile.name).includes(normalizedQuery);
+    });
+  }, [
+    profiles,
+    type,
+    isProfessorDirectory,
+    query,
+    courseFilter,
+    ratedOnly,
+    minSample,
+    sortBy,
+  ]);
+
+  const hasActiveFilters =
+    query.trim().length > 0 ||
+    courseFilter !== '' ||
+    ratedOnly ||
+    minSample !== '0' ||
+    sortBy !== 'experience';
+
+  function clearDirectoryFilters() {
+    setQuery('');
+    setCourseFilter('');
+    setRatedOnly(false);
+    setMinSample('0');
+    setSortBy('experience');
+  }
 
   return (
     <div>
       <div className="flex items-center justify-between gap-3 mb-4">
         <h1 className="text-lg font-black text-slate-800">
-          {type === 'professor' ? 'دایرکتوری استادان' : 'دایرکتوری دروس'}
+          {isProfessorDirectory ? 'دایرکتوری استادان' : 'دایرکتوری دروس'}
         </h1>
-        <span className="text-xs font-bold text-slate-500 bg-slate-200/50 px-3 py-1 rounded-full" aria-hidden="true">
-          {fa(filtered.length)} {type === 'professor' ? 'استاد' : 'درس'}
+
+        <span
+          className="text-xs font-bold text-slate-500 bg-slate-200/50 px-3 py-1 rounded-full"
+          aria-hidden="true"
+        >
+          {fa(filtered.length)} {isProfessorDirectory ? 'استاد' : 'درس'}
         </span>
-        <p role="status" className="sr-only">{fa(filtered.length)} مورد</p>
+
+        <p role="status" className="sr-only" aria-live="polite">
+          {fa(filtered.length)} مورد
+        </p>
       </div>
 
-      <div className="relative mb-4">
-        <label htmlFor="directory-search" className="sr-only">جستجو در {type === 'professor' ? 'نام استادان' : 'نام دروس'}</label>
+      {/* Search */}
+      <div className="relative mb-3">
+        <label htmlFor="directory-search" className="sr-only">
+          {isProfessorDirectory
+            ? 'جستجوی استاد یا درس‌های مرتبط'
+            : 'جستجوی نام درس'}
+        </label>
+
         <input
           id="directory-search"
           name="directory-search"
           type="search"
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={type === 'professor' ? 'جستجوی نام استاد...' : 'جستجوی نام درس...'}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder={
+            isProfessorDirectory
+              ? 'جستجوی نام استاد یا نام درس...'
+              : 'جستجوی نام درس...'
+          }
           className="search-input w-full bg-slate-100/60 py-3 px-4 rounded-2xl text-base font-medium outline-none focus:ring-2 focus:ring-blue-500/30 focus:bg-white border border-transparent focus:border-blue-200 transition-all placeholder-slate-400 text-slate-700"
         />
       </div>
 
+      {/* Professor-only filters */}
+      {isProfessorDirectory && (
+        <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 mb-4">
+          <label className="sr-only" htmlFor="directory-course-filter">
+            فیلتر بر اساس درس
+          </label>
+
+          <select
+            id="directory-course-filter"
+            value={courseFilter}
+            onChange={(event) => setCourseFilter(event.target.value)}
+            className="w-full sm:w-auto sm:min-w-48 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 px-3 py-2.5 min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+          >
+            <option value="">همه درس‌ها</option>
+
+            {courseOptions.map((course) => (
+              <option key={course.key} value={course.key}>
+                {course.name}
+              </option>
+            ))}
+          </select>
+
+          <label className="sr-only" htmlFor="directory-min-sample">
+            حداقل تعداد امتیاز معتبر
+          </label>
+
+          <select
+            id="directory-min-sample"
+            value={minSample}
+            onChange={(event) => setMinSample(event.target.value)}
+            className="w-full sm:w-auto bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 px-3 py-2.5 min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+          >
+            <option value="0">هر تعداد امتیاز معتبر</option>
+            <option value="5">حداقل ۵ امتیاز معتبر</option>
+            <option value="10">حداقل ۱۰ امتیاز معتبر</option>
+          </select>
+
+          <label className="sr-only" htmlFor="directory-sort">
+            ترتیب نمایش استادان
+          </label>
+
+          <select
+            id="directory-sort"
+            value={sortBy}
+            onChange={(event) => setSortBy(event.target.value)}
+            className="w-full sm:w-auto bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 px-3 py-2.5 min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+          >
+            <option value="experience">بیشترین تجربه</option>
+            <option value="score-high">میانگین امتیاز بالاتر</option>
+            <option value="score-low">میانگین امتیاز پایین‌تر</option>
+            <option value="score-count">بیشترین تعداد امتیاز معتبر</option>
+            <option value="name">ترتیب الفبایی</option>
+          </select>
+
+          <button
+            id="directory-rated-only"
+            type="button"
+            onClick={() => setRatedOnly((value) => !value)}
+            aria-pressed={ratedOnly}
+            className={`w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold border transition-all min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 ${
+              ratedOnly
+                ? 'bg-emerald-600 text-white border-emerald-600'
+                : 'bg-white text-slate-600 border-slate-200 hover:border-emerald-300'
+            }`}
+          >
+            {ratedOnly ? '✓ ' : ''}
+            فقط استادان امتیازدار
+          </button>
+
+          {hasActiveFilters && (
+            <button
+              id="directory-clear-filters"
+              type="button"
+              onClick={clearDirectoryFilters}
+              className="w-full sm:w-auto px-3 py-2.5 rounded-xl text-xs font-bold text-red-600 bg-red-50 border border-red-100 hover:bg-red-100 transition-all min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/40"
+            >
+              پاک کردن جست‌وجو و فیلترها
+            </button>
+          )}
+        </div>
+      )}
+
+      {isProfessorDirectory &&
+        (sortBy === 'score-high' || sortBy === 'score-low') && (
+          <p className="text-[11px] text-slate-500 font-bold mb-4 leading-5">
+            در مرتب‌سازی میانگین، استادانی که حداقل ۵ امتیاز معتبر دارند
+            در اولویت نمایش‌اند. میانگین‌های مبتنی بر نمونه کوچک در بخش بعدی
+            قرار می‌گیرند و به‌تنهایی مبنای قضاوت نیستند.
+          </p>
+        )}
+
       {filtered.length > 0 ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-          {filtered.map((p) => <DirectoryRow key={p.key} profile={p} type={type} />)}
+          {filtered.map((profile) => (
+            <DirectoryRow
+              key={profile.key}
+              profile={profile}
+              type={type}
+            />
+          ))}
         </div>
       ) : (
         <div className="flex flex-col items-center justify-center py-20 text-slate-400">
           <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-3">
             <SearchX size={26} aria-hidden="true" />
           </div>
-          <p className="font-bold text-slate-600">موردی یافت نشد</p>
+
+          <p className="font-bold text-slate-600">
+            موردی یافت نشد
+          </p>
+
+          <p className="text-xs text-slate-400 mt-1 mb-4">
+            جست‌وجو یا فیلترهای انتخاب‌شده را تغییر بده.
+          </p>
+
+          {isProfessorDirectory && hasActiveFilters && (
+            <button
+              type="button"
+              onClick={clearDirectoryFilters}
+              className="px-5 py-2.5 bg-blue-50 text-blue-700 text-sm font-bold rounded-xl hover:bg-blue-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+            >
+              پاک کردن همه فیلترها
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -377,7 +593,13 @@ export default function ProfilesView({ route, searchable, onOpenExperience }) {
     if (!profile) return <NotFound type="course" />;
     return <ProfilePage profile={profile} type="course" onOpenExperience={onOpenExperience} />;
   }
-  return <Directory profiles={section === 'courses' ? profiles.courses : profiles.professors} type={section === 'courses' ? 'course' : 'professor'} />;
+  return (
+    <Directory
+      key={section}
+      profiles={section === 'courses' ? profiles.courses : profiles.professors}
+      type={section === 'courses' ? 'course' : 'professor'}
+    />
+  );
 }
 
 function NotFound({ type }) {

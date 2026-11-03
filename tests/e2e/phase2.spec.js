@@ -84,6 +84,46 @@ test.describe('Feature 1 — profiles', () => {
     await page.goto('/iau-experiences/#/professor/%D9%86%D8%A7%D9%85%20%D9%86%D8%A7%D9%85%D8%B9%D8%AA%D8%A8%D8%B1');
     await expect(page.getByText('این پروفایل یافت نشد')).toBeVisible();
   });
+
+  test('professor directory filters and sorting controls work', async ({ page }) => {
+    await page.goto('/iau-experiences/#/professors');
+
+    await expect(page.locator('#directory-search')).toBeVisible();
+    await expect(page.locator('#directory-course-filter')).toBeVisible();
+    await expect(page.locator('#directory-min-sample')).toBeVisible();
+    await expect(page.locator('#directory-sort')).toBeVisible();
+    await expect(page.locator('#directory-rated-only')).toBeVisible();
+
+    // Alphabetical sorting
+    await page.locator('#directory-sort').selectOption('name');
+
+    const firstNames = await page
+      .locator('main a[href^="#/professor/"] h3')
+      .allTextContents();
+
+    expect(firstNames.length).toBeGreaterThan(5);
+
+    // Score sorting
+    await page.locator('#directory-sort').selectOption('score-high');
+
+    // Minimum valid score count
+    await page.locator('#directory-min-sample').selectOption('5');
+
+    // Rated-only toggle
+    const ratedOnly = page.locator('#directory-rated-only');
+
+    await ratedOnly.click();
+    await expect(ratedOnly).toHaveAttribute('aria-pressed', 'true');
+
+    // Reset everything
+    await page.locator('#directory-clear-filters').click();
+
+    await expect(page.locator('#directory-search')).toHaveValue('');
+    await expect(page.locator('#directory-course-filter')).toHaveValue('');
+    await expect(page.locator('#directory-min-sample')).toHaveValue('0');
+    await expect(page.locator('#directory-sort')).toHaveValue('experience');
+    await expect(ratedOnly).toHaveAttribute('aria-pressed', 'false');
+  });
 });
 
 test.describe('Feature 2 — explorer', () => {
@@ -178,6 +218,33 @@ test.describe('Feature 2 — explorer', () => {
     await chip.click();
     await expect(page.locator('#explorer-search')).toHaveValue(/جزوه/);
   });
+
+  test('Explorer distinguishes professor scores from student grades', async ({ page }) => {
+    await page.goto('/iau-experiences/#/explore');
+
+    const professorScore = page.locator('#filter-professor-score');
+    const studentScore = page.locator('#filter-student-score');
+
+    await expect(professorScore).toBeVisible();
+    await expect(studentScore).toBeVisible();
+
+    await professorScore.click();
+    await expect(professorScore).toHaveAttribute('aria-pressed', 'true');
+
+    await studentScore.click();
+    await expect(studentScore).toHaveAttribute('aria-pressed', 'true');
+
+    await expect(page.getByRole('button', {
+      name: 'پاک کردن فیلترها',
+    })).toBeVisible();
+
+    await page.getByRole('button', {
+      name: 'پاک کردن فیلترها',
+    }).click();
+
+    await expect(professorScore).toHaveAttribute('aria-pressed', 'false');
+    await expect(studentScore).toHaveAttribute('aria-pressed', 'false');
+  });
 });
 
 test.describe('deep links & subtle features', () => {
@@ -222,5 +289,44 @@ test.describe('deep links & subtle features', () => {
     await expect(page.getByText('بازدیدهای اخیر')).toBeVisible();
     await page.getByRole('button', { name: 'پاک کردن تاریخچه' }).click();
     await expect(page.getByText('بازدیدهای اخیر')).toBeHidden();
+  });
+});
+
+test.describe('Responsive header', () => {
+  test('last update is visible and header has no horizontal overflow', async ({ page }) => {
+    await page.goto('/iau-experiences/');
+
+    await expect(page.locator('#last-update')).toBeVisible();
+
+    const overflow = await page.evaluate(() => (
+      document.documentElement.scrollWidth >
+      document.documentElement.clientWidth
+    ));
+
+    expect(overflow).toBe(false);
+  });
+
+  test('mobile and tablet menu opens correctly', async ({ page }) => {
+    await page.goto('/iau-experiences/');
+
+    const menuButton = page.getByRole('button', {
+      name: 'باز کردن منو',
+    });
+
+    if (await menuButton.isVisible()) {
+      await menuButton.click();
+
+      await expect(page.locator('#mobile-menu')).toBeVisible();
+
+      await expect(
+        page.locator('#mobile-menu a[href="https://t.me/IAUCourseExp"]')
+      ).toBeVisible();
+    } else {
+      await expect(
+        page.locator('nav[aria-label="ناوبری اصلی"]')
+      ).toBeVisible();
+    }
+
+    await expect(page.locator('#last-update')).toBeVisible();
   });
 });

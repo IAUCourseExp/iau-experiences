@@ -115,8 +115,11 @@ for (const entry of manifest.fixtures) {
       const explorerSearch = page.locator('#explorer-search');
       await expect(explorerSearch).toBeVisible({ timeout: 20_000 });
       await explorerSearch.fill(text.split(/\s+/)[0]);
+      // Scope to the explorer HEADER status paragraph: the atlas loading
+      // indicator is a <div role="status"> that transiently coexists with
+      // it, so a bare getByRole('status') is ambiguous in strict mode.
       await expect
-        .poll(async () => page.getByRole('status').textContent(), { timeout: 10_000 })
+        .poll(async () => page.locator('p[role="status"]').textContent(), { timeout: 10_000 })
         .not.toContain(new Intl.NumberFormat('fa-IR').format(0));
       record(entry, 'lexical-search', 'passed', 'explorer full-text search finds the appended text');
     } else {
