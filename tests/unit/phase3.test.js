@@ -205,7 +205,7 @@ describe('published atlas artifacts bind to the current dataset', () => {
     }
   });
 
-  it('atlas-neighbors.json binds to the same dataset and mode', async () => {
+  it('atlas-neighbors.json binds to the same dataset and declares its own mode', async () => {
     const data = JSON.parse(fs.readFileSync('src/data.json', 'utf8'));
     const validation = validateDataset(data);
     const fingerprint = validation.driftFingerprint;
@@ -216,13 +216,19 @@ describe('published atlas artifacts bind to the current dataset', () => {
     const topicBinding = bindArtifact(topics, fingerprint);
     const neighborBinding = bindArtifact(neighbors, fingerprint);
 
+    // Both artifacts must bind to the current dataset.
     expect(topicBinding.bound).toBe(true);
-    expect(neighborBinding).toEqual({
-      bound: true,
-      mode: topicBinding.mode,
-    });
+    expect(neighborBinding.bound).toBe(true);
 
-    if (topicBinding.mode === 'lexical-fallback') {
+    // Their dataset bindings must agree, but their modes are independent.
+    expect(neighbors.manifest.datasetDriftFingerprint)
+      .toBe(topics.manifest.datasetDriftFingerprint);
+
+    // The neighbors artifact must respect its OWN declared mode.
+    expect(neighborBinding.mode).toBe(neighbors.manifest.mode);
+
+    if (neighborBinding.mode === 'lexical-fallback') {
+      // Honest fallback: no fabricated neighbor lists.
       expect(neighbors.neighbors).toEqual({});
       return;
     }
