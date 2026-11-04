@@ -12,6 +12,7 @@ import {
 import { professorRoute, courseRoute, coursesListSearchLink } from '../lib/router.js';
 import DistributionChart from './DistributionChart.jsx';
 import ExperienceCard from './ExperienceCard.jsx';
+import Combobox from './Combobox.jsx';
 
 const MotionDiv = motion.div;
 
@@ -248,24 +249,18 @@ function Directory({ profiles, type }) {
       {/* Professor-only filters */}
       {isProfessorDirectory && (
         <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 mb-4">
-          <label className="sr-only" htmlFor="directory-course-filter">
-            فیلتر بر اساس درس
-          </label>
-
-          <select
-            id="directory-course-filter"
-            value={courseFilter}
-            onChange={(event) => setCourseFilter(event.target.value)}
-            className="w-full sm:w-auto sm:min-w-48 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 px-3 py-2.5 min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
-          >
-            <option value="">همه درس‌ها</option>
-
-            {courseOptions.map((course) => (
-              <option key={course.key} value={course.key}>
-                {course.name}
-              </option>
-            ))}
-          </select>
+          <div className="w-full sm:w-auto sm:min-w-[190px] max-w-full">
+            <Combobox
+              id="directory-course-filter"
+              label="فیلتر بر اساس درس"
+              value={courseFilter}
+              onChange={setCourseFilter}
+              options={courseOptions.map((course) => ({ value: course.key, label: course.name }))}
+              placeholder="همه درس‌ها"
+              allLabel="همه درس‌ها"
+              emptyMessage="درسی با این نام یافت نشد."
+            />
+          </div>
 
           <label className="sr-only" htmlFor="directory-min-sample">
             حداقل تعداد امتیاز معتبر
@@ -357,7 +352,7 @@ function Directory({ profiles, type }) {
           </p>
 
           <p className="text-xs text-slate-400 mt-1 mb-4">
-            جست‌وجو یا فیلترهای انتخاب‌شده را تغییر بده.
+            جست‌وجو یا فیلترهای انتخاب‌شده را تغییر دهید.
           </p>
 
           {isProfessorDirectory && hasActiveFilters && (

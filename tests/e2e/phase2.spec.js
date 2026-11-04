@@ -136,7 +136,9 @@ test.describe('Feature 2 — explorer', () => {
     await page.screenshot({ path: `audit-artifacts/phase-2/after/${testInfo.project.name}-explorer-results.png` });
     // normalization: Arabic Kaf query finds Persian Kaf texts too
     await page.locator('#explorer-search').fill('كوییز'); // Arabic Kaf
-    await expect(page.getByRole('status')).toContainText('نتیجه');
+    // the results status is the sr-only <p>; the atlas loader is also
+    // role="status", so scope to the <p> for a strict, deterministic match
+    await expect(page.locator('p[role="status"]')).toContainText('نتیجه');
   });
 
   test('quoted phrase search works', async ({ page }) => {
@@ -144,7 +146,7 @@ test.describe('Feature 2 — explorer', () => {
     await page.locator('#explorer-search').fill('"خوش اخلاق"');
     // wait past the 150 ms debounce for the filtered count
     await expect
-      .poll(async () => page.getByRole('status').textContent(), { timeout: 5_000 })
+      .poll(async () => page.locator('p[role="status"]').textContent(), { timeout: 5_000 })
       .not.toContain('۲٬۳۳۰');
     await expect(page.locator('main mark').first()).toBeVisible();
   });
@@ -328,5 +330,74 @@ test.describe('Responsive header', () => {
     }
 
     await expect(page.locator('#last-update')).toBeVisible();
+  });
+});
+
+test.describe('semantic similar experiences (Phase III neighbors)', () => {
+  const LOAD_BUTTON = 'نمایش تجربه‌های موضوعاً مشابه (پیش‌محاسبه‌شده)';
+  const READY_HEADING = 'تجربه‌های نزدیک از نظر موضوعی';
+
+  test('loads the precomputed similar list for a card that has neighbors', async ({ page }) => {
+    await page.goto('/iau-experiences/#/experience/2');
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+
+    await dialog.getByRole('button', { name: LOAD_BUTTON }).click();
+
+    await expect(dialog.getByRole('heading', { name: READY_HEADING })).toBeVisible();
+    const items = dialog.getByRole('button').filter({ hasText: 'مشابه' });
+    expect(await items.count()).toBeGreaterThan(0);
+    const originalTitle = await dialog.locator('#exp-dialog-title').textContent();
+
+    // navigating to a similar experience opens a NEW dialog for a DIFFERENT
+    // record. AnimatePresence keeps the exiting dialog in the DOM briefly,
+    // so wait for exactly one dialog before asserting on it.
+    await items.first().click();
+    await expect(page.getByRole('dialog')).toHaveCount(1, { timeout: 15_000 });
+    const next = page.getByRole('dialog');
+    await expect(next).toBeVisible();
+    await expect(next.locator('#exp-dialog-title')).not.toHaveText(originalTitle ?? '');
+    // stale-results guard: the new record starts idle with no previous list
+    await expect(next.getByRole('heading', { name: READY_HEADING })).toHaveCount(0);
+    await expect(
+      next.getByRole('button', { name: LOAD_BUTTON })
+    ).toBeVisible();
+  });
+
+  test('shows the honest empty state for a record with no similar match', async ({ page }) => {
+    // record 268 has no usable text, so the artifact intentionally has no
+    // neighbor entry for it — the UI must say "no similar experience exists",
+    // not "artifact unavailable".
+    await page.goto('/iau-experiences/#/experience/268');
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+
+    await dialog.getByRole('button', { name: LOAD_BUTTON }).click();
+
+    await expect(
+      dialog.getByText('مشابه معنایی ثبت‌شده‌ای برای این تجربه پیدا نشد.')
+    ).toBeVisible();
+  });
+
+  test('neighbor navigation does not leak the previous list into the next card', async ({ page }) => {
+    await page.goto('/iau-experiences/#/experience/2');
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: LOAD_BUTTON }).click();
+    await expect(dialog.getByRole('heading', { name: READY_HEADING })).toBeVisible();
+
+    // deep-link to the no-match record: the app performs a hash-only
+    // navigation (same document) and AnimatePresence transitions between the
+    // dialogs — wait for exactly one dialog, then assert the honest empty
+    // state and that the previous list is gone.
+    await page.goto('/iau-experiences/#/experience/268');
+    await expect(page.getByRole('dialog')).toHaveCount(1, { timeout: 15_000 });
+    const nextDialog = page.getByRole('dialog');
+    await expect(nextDialog).toBeVisible();
+    await nextDialog.getByRole('button', { name: LOAD_BUTTON }).click();
+    await expect(
+      nextDialog.getByText('مشابه معنایی ثبت‌شده‌ای برای این تجربه پیدا نشد.')
+    ).toBeVisible();
+    await expect(nextDialog.getByRole('heading', { name: READY_HEADING })).toHaveCount(0);
   });
 });

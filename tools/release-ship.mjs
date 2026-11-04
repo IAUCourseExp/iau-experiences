@@ -29,7 +29,11 @@ import { runShip } from './release-ship-core.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 function git(args) {
-  return execFileSync('git', args, { cwd: ROOT, encoding: 'utf8' }).trim();
+  // Strip only surrounding newlines — a full .trim() would eat the leading
+  // status column of the first `git status --porcelain` line (turning
+  // " M eslint.config.js" into "M eslint.config.js" and corrupting its path).
+  return execFileSync('git', args, { cwd: ROOT, encoding: 'utf8' })
+    .replace(/^[\r\n]+|[\r\n]+$/g, '');
 }
 
 try {

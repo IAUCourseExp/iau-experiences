@@ -46,7 +46,11 @@ function run(name, fn) {
 }
 
 function git(args) {
-  return execFileSync('git', args, { cwd: ROOT, encoding: 'utf8' }).trim();
+  // Strip only surrounding newlines — a full .trim() would eat the leading
+  // status column of the first `git status --porcelain` line (turning
+  // " M eslint.config.js" into "M eslint.config.js" and corrupting its path).
+  return execFileSync('git', args, { cwd: ROOT, encoding: 'utf8' })
+    .replace(/^[\r\n]+|[\r\n]+$/g, '');
 }
 
 // 1. Git state
@@ -216,10 +220,12 @@ if (failures.length) {
   const markerDir = path.join(ROOT, 'audit-artifacts');
   if (!fs.existsSync(markerDir)) fs.mkdirSync(markerDir, { recursive: true });
 
-  // Working tree fingerprint (tracked + untracked relevant files)
-  const gitStatus = git(['status', '--porcelain']);
-  const dirty = gitStatus.trim().length > 0;
-  const changedFiles = gitStatus.trim() ? gitStatus.trim().split('\n').map(l => l.trim().slice(3)) : [];
+  // Working tree fingerprint (tracked + untracked relevant files).
+  // Strip only surrounding newlines: a full .trim() would eat the leading
+  // status column of the first porcelain line and corrupt its path.
+  const gitStatus = git(['status', '--porcelain']).replace(/^[\r\n]+|[\r\n]+$/g, '');
+  const dirty = gitStatus.length > 0;
+  const changedFiles = dirty ? gitStatus.split('\n').map(l => l.slice(3)) : [];
 
   const marker = {
     passedAt: Date.now(),

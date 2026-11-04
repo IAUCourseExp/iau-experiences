@@ -5,7 +5,14 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist', 'audit-artifacts', 'test-results', 'playwright-report']),
+  globalIgnores([
+    'dist',
+    'audit-artifacts',
+    'test-results',
+    'playwright-report',
+    // Local diagnostic scratch tests — kept on disk, not linted.
+    'tests/unit/test-*.test.js',
+  ]),
   {
     files: ['src/**/*.{js,jsx}', '*.config.js'],
     extends: [

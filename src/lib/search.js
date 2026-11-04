@@ -112,12 +112,16 @@ export function normalizeWithMap(input) {
  * Split a raw query into terms (single words, AND-combined) and quoted
  * phrases. Returns normalized, non-empty entries.
  *   'حضور "و غیاب" پروژه' → { terms: ['حضور','پروژه'], phrases: ['و غیاب'] }
+ * Persian guillemets are accepted as phrase quotes as well — the explorer's
+ * help text and the keyword chips advertise «...», and the parser silently
+ * ignored them until Phase V (the chips made that defect user-visible).
+ *   '«حضور و غیاب»' → { terms: [], phrases: ['حضور و غیاب'] }
  */
 export function parseQueryTerms(rawQuery) {
   const q = normalizePersian(rawQuery);
   if (!q) return { terms: [], phrases: [] };
   const phrases = [];
-  const rest = q.replace(/"([^"]+)"/g, (_, phrase) => {
+  const rest = q.replace(/[«"]([^»"]+)[»"]/g, (_, phrase) => {
     const p = normalizePersian(phrase);
     if (p) phrases.push(p);
     return ' ';

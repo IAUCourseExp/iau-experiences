@@ -2,7 +2,6 @@ import { describe, it, expect, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import crypto from 'node:crypto';
 import {
   runShip,
   resolveGhPagesCli,
@@ -25,7 +24,7 @@ const NOW = 1_800_000_000_000;
 /**
  * Join a repository-relative fixture path onto a temp root, refusing any
  * path that would escape the root. All inputs come from the hardcoded
- * allowlist constants in this file — this guard is defense in depth.
+ * allowlist constants in this file -- this guard is defense in depth.
  */
 function safeJoin(root, relativePath) {
   const resolved = path.resolve(root, relativePath);
@@ -52,7 +51,7 @@ function makeRoot({ withGhPages = true } = {}) {
     fs.writeFileSync(abs, content);
   };
 
-  // Write every fixture file FIRST, then hash from disk — some paths
+  // Write every fixture file FIRST, then hash from disk -- some paths
   // (scraper.py, src/last_update.json) are both protected and releasable,
   // so hashing during the writes would record pre-overwrite values.
   write('scraper.py', 'SCRAPER\n');
@@ -61,13 +60,16 @@ function makeRoot({ withGhPages = true } = {}) {
   write('package.json', '{}\n');
   write('package-lock.json', '{}\n');
   write('.github/workflows/Main.yml', 'workflow\n');
-  write('src/derived/atlas-topics.json', JSON.stringify({ manifest: { datasetDriftFingerprint: DRIFT } }));
   write('dist/index.html', '<html></html>');
   write('dist/assets/atlas-topics.js', 'T');
   write('dist/assets/atlas-neighbors.js', 'N');
   for (const rel of RELEASE_FILES) {
     write(rel, `content of ${rel}\n`);
   }
+  // The topics artifact is BOTH an allowlisted release file and a JSON
+  // document the ship gate parses — write it after the generic fixtures so
+  // its content stays valid JSON bound to the fixture's drift fingerprint.
+  write('src/derived/atlas-topics.json', JSON.stringify({ manifest: { datasetDriftFingerprint: DRIFT } }));
   if (withGhPages) {
     write('node_modules/gh-pages/package.json', JSON.stringify({ version: '6.3.0' }));
     write('node_modules/gh-pages/bin/gh-pages.js', '#!/usr/bin/env node\n');
@@ -168,7 +170,7 @@ function baseIo(root, git, execFile, env = {}) {
 }
 
 describe('gh-pages CLI resolution', () => {
-  it('aborts before any git activity when the local gh-pages dependency is missing', (_) => {
+  it('aborts before any git activity when the local gh-pages dependency is missing', () => {
     const { root } = makeRoot({ withGhPages: false });
     const git = makeGitFake();
     expect(() => runShip(baseIo(root, git, makeExecFake())))
@@ -177,7 +179,7 @@ describe('gh-pages CLI resolution', () => {
     expect(git.wrote()).toHaveLength(0);
   });
 
-  it('resolves the local JavaScript entry point under node_modules', (_) => {
+  it('resolves the local JavaScript entry point under node_modules', () => {
     const { root } = makeRoot();
     const { cliPath, version } = resolveGhPagesCli(root);
     expect(cliPath).toBe(path.join(root, 'node_modules', 'gh-pages', 'bin', 'gh-pages.js'));
@@ -186,8 +188,8 @@ describe('gh-pages CLI resolution', () => {
 });
 
 describe('release pipeline (runShip)', () => {
-it('happy path: deploys first via process.execPath with -d dist, then stages exactly the allowlist, commits with a pathspec, and pushes', (t) => {
-    const { root } = makeRoot(t);
+  it('happy path: deploys first via process.execPath with -d dist, then stages exactly the allowlist, commits with a pathspec, and pushes', () => {
+    const { root } = makeRoot();
     const statusLines = RELEASE_FILES.map((p) => ` M ${p}`);
     statusLines.push(`D  ${AUTHORIZED_PRESTAGED_PATHS[0]}`);
     statusLines.push(' D src/components/ContrastiveExplorer.jsx');
@@ -227,11 +229,12 @@ it('happy path: deploys first via process.execPath with -d dist, then stages exa
     expect(git.calls[git.calls.length - 1]).toEqual(['push', 'origin', 'main']);
   });
 
-it('excludes preserved and unrelated untracked files from staging', (_) => {
+  it('excludes preserved and unrelated untracked files from staging', () => {
     const { root } = makeRoot();
     const statusLines = [
       ...RELEASE_FILES.map((p) => ` M ${p}`),
-      ' M tools/nlp_pipeline.py',
+      // a modified file that is preserved (never staged, never shipped)
+      ' M src/components/ContrastiveExplorer.jsx',
       '?? EXPERIENCES_PHASE4_AUTONOMOUS_PLATFORM_REPORT.md',
       '?? EXPERIENCES_PHASE4_FINAL_REMEDIATION_REPORT.md',
     ];
@@ -239,13 +242,13 @@ it('excludes preserved and unrelated untracked files from staging', (_) => {
     runShip(baseIo(root, git, makeExecFake()));
     const addCall = git.calls.find((c) => c[0] === 'add');
     const stagedPaths = addCall.slice(2);
-    expect(stagedPaths).not.toContain('tools/nlp_pipeline.py');
+    expect(stagedPaths).not.toContain('src/components/ContrastiveExplorer.jsx');
     expect(stagedPaths).not.toContain('EXPERIENCES_PHASE4_AUTONOMOUS_PLATFORM_REPORT.md');
     expect(stagedPaths).not.toContain('EXPERIENCES_PHASE4_FINAL_REMEDIATION_REPORT.md');
     expect(stagedPaths).toEqual(RELEASE_FILES);
   });
 
-  it('aborts when an unknown working-tree change exists outside the allowlist and preserved set', (_) => {
+  it('aborts when an unknown working-tree change exists outside the allowlist and preserved set', () => {
     const { root } = makeRoot();
     const git = makeGitFake({ statusLines: [' M some-random-file.txt'] });
     expect(() => runShip(baseIo(root, git, makeExecFake())))
@@ -253,7 +256,7 @@ it('excludes preserved and unrelated untracked files from staging', (_) => {
     expect(git.wrote()).toHaveLength(0);
   });
 
-  it('aborts when unexpected content is already staged, and never discards it', (_t) => {
+  it('aborts when unexpected content is already staged, and never discards it', () => {
     const { root } = makeRoot();
     const git = makeGitFake({
       statusLines: [` M ${RELEASE_FILES[0]}`],
@@ -265,14 +268,10 @@ it('excludes preserved and unrelated untracked files from staging', (_) => {
     expect(git.calls.filter((c) => c[0] === 'add' || c[0] === 'reset' || c[0] === 'restore')).toHaveLength(0);
   });
 
-  it('deployment failure aborts before any staging, commit, or push', (_t) => {
-    const { root, marker } = makeRoot();
+  it('deployment failure aborts before any staging, commit, or push', () => {
+    const { root } = makeRoot();
     const git = makeGitFake({ statusLines: RELEASE_FILES.map((p) => ` M ${p}`) });
     const exec = makeExecFake({ failDeploy: true });
-    // eslint-disable-next-line no-console
-    console.log('DBG marker.scraper =', marker.protectedHashes.scraper,
-      '| disk =', crypto.createHash('sha256').update(fs.readFileSync(safeJoin(root, 'scraper.py'))).digest('hex'),
-      '| markerFile =', JSON.parse(fs.readFileSync(safeJoin(root, path.join('audit-artifacts', 'preflight-passed.json')), 'utf8')).protectedHashes.scraper);
     expect(() => runShip(baseIo(root, git, exec))).toThrow(/EINVAL/);
     expect(exec.calls).toHaveLength(1);
     expect(git.wrote()).toHaveLength(0);
@@ -298,7 +297,7 @@ it('excludes preserved and unrelated untracked files from staging', (_) => {
       .toThrow(ShipError, /missing required field/);
   });
 
-  it('aborts when a release file changed after preflight', (_t) => {
+  it('aborts when a release file changed after preflight', () => {
     const { root } = makeRoot();
     fs.writeFileSync(safeJoin(root, 'src/lib/profiles.js'), 'tampered\n');
     const git = makeGitFake({ statusLines: [' M src/lib/profiles.js'] });
@@ -307,7 +306,7 @@ it('excludes preserved and unrelated untracked files from staging', (_) => {
     expect(git.wrote()).toHaveLength(0);
   });
 
-  it('aborts when the dist build output changed after preflight', (_t) => {
+  it('aborts when the dist build output changed after preflight', () => {
     const { root } = makeRoot();
     fs.writeFileSync(safeJoin(root, 'dist/index.html'), '<html>tampered</html>');
     const git = makeGitFake({ statusLines: RELEASE_FILES.map((p) => ` M ${p}`) });
@@ -316,7 +315,7 @@ it('excludes preserved and unrelated untracked files from staging', (_) => {
     expect(git.wrote()).toHaveLength(0);
   });
 
-  it('aborts when HEAD changed since preflight', (_t) => {
+  it('aborts when HEAD changed since preflight', () => {
     const { root } = makeRoot();
     const inner = makeGitFake();
     const git = (args) => {
@@ -327,7 +326,7 @@ it('excludes preserved and unrelated untracked files from staging', (_) => {
       .toThrow(ShipError, /HEAD changed since preflight/);
   });
 
-  it('verify-only mode runs every gate, touches nothing, and reports the exact plan', (_t) => {
+  it('verify-only mode runs every gate, touches nothing, and reports the exact plan', () => {
     const { root } = makeRoot();
     const statusLines = RELEASE_FILES.map((p) => ` M ${p}`);
     const git = makeGitFake({ statusLines, cachedLines: [AUTHORIZED_PRESTAGED_PATHS[0]] });
@@ -338,7 +337,7 @@ it('excludes preserved and unrelated untracked files from staging', (_) => {
     expect(git.wrote()).toHaveLength(0);
   });
 
-  it('preserved files are reported and never staged', (_t) => {
+  it('preserved files are reported and never staged', () => {
     const { root, marker: _marker } = makeRoot();
     // The marker expects ALL RELEASE_FILES as changedFiles.
     // We must include ALL RELEASE_FILES + PRESERVED_PATHS in status to pass the

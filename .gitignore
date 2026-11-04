@@ -43,6 +43,10 @@ test-results/
 .env
 *.env
 
+# Python bytecode caches — never committed (tools/nlp_pipeline.py)
+__pycache__/
+*.pyc
+
 # Generated matrix fixtures (regenerable from data.json via tools/matrix)
 tools/fixtures/
 

@@ -5,12 +5,14 @@ import {
   Sparkles, ChevronDown, ChevronUp, Info,
 } from 'lucide-react';
 import {
-  searchFullText, buildHighlightExcerpt, buildTextIndex, buildKeywordFrequency,
+  searchFullText, buildHighlightExcerpt, buildTextIndex,
 } from '../lib/explorer.js';
+import { buildKeywordInsights, chipQuery } from '../lib/keywords.js';
 import { normalizePersian } from '../lib/search.js';
 import { loadTopicsArtifact, bindArtifact } from '../lib/atlas.js';
 import { professorRoute, courseRoute } from '../lib/router.js';
 import ExperienceCard from './ExperienceCard.jsx';
+import Combobox from './Combobox.jsx';
 
 // Capitalized proxies so ESLint's no-unused-vars sees the JSX usage
 // (core rule does not count `<motion.article />` member-expression objects).
@@ -193,7 +195,26 @@ export default function ExplorerView({ searchable, datasetChecksum, onOpenExperi
   const textIndex = useMemo(() => buildTextIndex(searchable), [searchable]);
   const entryById = useMemo(() => new Map(textIndex.map((e) => [e.id, e])), [textIndex]);
   const recordById = useMemo(() => new Map(searchable.map((r) => [r.identity, r])), [searchable]);
-  const keywords = useMemo(() => buildKeywordFrequency(textIndex, 24), [textIndex]);
+  // Decision-oriented keyword discovery: multi-word expressions ranked by
+  // DISTINCT-REPORT document frequency (src/lib/keywords.js documents the
+  // full method). Extraction is deterministic and measured at <100 ms for
+  // the full corpus inside this lazy-loaded view. The DISPLAYED count is
+  // recomputed with the very search a click triggers, so the number on a
+  // chip can never disagree with the result list it produces (ranking uses
+  // text-evidence df; display uses the exact filterable count).
+  const keywordInsights = useMemo(() => buildKeywordInsights(textIndex), [textIndex]);
+  const keywords = useMemo(
+    () => keywordInsights.selected.map((k) => ({
+      ...k,
+      resultCount: searchFullText(searchable, textIndex, chipQuery(k.phrase)).length,
+    })),
+    [keywordInsights, searchable, textIndex]
+  );
+  const [showAllKeywords, setShowAllKeywords] = useState(false);
+  const activeKeywordChip = useMemo(
+    () => keywords.find((k) => chipQuery(k.phrase) === appliedQuery.trim()) || null,
+    [keywords, appliedQuery]
+  );
 
   // Load the build-time artifact once and bind it to the dataset we received.
   useEffect(() => {
@@ -420,31 +441,39 @@ export default function ExplorerView({ searchable, datasetChecksum, onOpenExperi
               فقط دارای نمره دانشجو
             </button>
 
-            <label className="sr-only" htmlFor="filter-prof">فیلتر استاد</label>
-            <select
-              id="filter-prof"
-              value={profFilter}
-              onChange={(e) => { setProfFilter(e.target.value); setVisibleCount(30); }}
-              className="bg-white border border-slate-200 rounded-xl text-[11px] font-bold text-slate-600 px-3 py-2 min-h-[40px] max-w-[45%] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
-            >
-              <option value="">همه استادان</option>
-              {facetOptions.professors.map(([name, count]) => (
-                <option key={name} value={normalizePersian(name)}>{name} ({fa(count)})</option>
-              ))}
-            </select>
+            <div className="w-full sm:w-auto sm:min-w-[190px] max-w-full">
+              <Combobox
+                id="filter-prof"
+                label="فیلتر استاد"
+                value={profFilter}
+                onChange={(v) => { setProfFilter(v); setVisibleCount(30); }}
+                options={facetOptions.professors.map(([name, count]) => ({
+                  value: normalizePersian(name),
+                  label: name,
+                  hint: count.toLocaleString('fa-IR'),
+                }))}
+                placeholder="همه استادان"
+                allLabel="همه استادان"
+                emptyMessage="استادی با این نام یافت نشد."
+              />
+            </div>
 
-            <label className="sr-only" htmlFor="filter-course">فیلتر درس</label>
-            <select
-              id="filter-course"
-              value={courseFilter}
-              onChange={(e) => { setCourseFilter(e.target.value); setVisibleCount(30); }}
-              className="bg-white border border-slate-200 rounded-xl text-[11px] font-bold text-slate-600 px-3 py-2 min-h-[40px] max-w-[45%] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
-            >
-              <option value="">همه دروس</option>
-              {facetOptions.courses.map(([name, count]) => (
-                <option key={name} value={normalizePersian(name)}>{name} ({fa(count)})</option>
-              ))}
-            </select>
+            <div className="w-full sm:w-auto sm:min-w-[170px] max-w-full">
+              <Combobox
+                id="filter-course"
+                label="فیلتر درس"
+                value={courseFilter}
+                onChange={(v) => { setCourseFilter(v); setVisibleCount(30); }}
+                options={facetOptions.courses.map(([name, count]) => ({
+                  value: normalizePersian(name),
+                  label: name,
+                  hint: count.toLocaleString('fa-IR'),
+                }))}
+                placeholder="همه دروس"
+                allLabel="همه دروس"
+                emptyMessage="درسی با این نام یافت نشد."
+              />
+            </div>
 
             {hasActiveFilters && (
               <button
@@ -457,24 +486,64 @@ export default function ExplorerView({ searchable, datasetChecksum, onOpenExperi
             )}
           </div>
 
-          {/* Keyword discovery (corpus-derived frequency, fixed algorithm) */}
+          {/* Keyword discovery — recurring decision-relevant expressions,
+              corpus-derived and ranked by DISTINCT-REPORT frequency. Counts
+              are facts about the corpus (how many reports contain the exact
+              expression), never verified claims about professors. */}
           <div className="mt-4 mb-6">
-            <h2 className="text-xs font-black text-slate-600 mb-2">کلیدواژه‌های پرتکرار در تجربه‌ها</h2>
+            <h2 className="text-xs font-black text-slate-600 mb-1">موضوعات پرتکرار در تجربه‌های دانشجویان</h2>
             <p className="text-[10px] font-bold text-slate-400 mb-3 leading-5">
-              پرتکرارترین واژه‌های معنادار متن تجربه‌ها؛ با انتخاب هر واژه، نتایج همان واژه نمایش داده می‌شود.
+              عبارت‌های پرتکرار از دل متن تجربه‌ها استخراج شده‌اند؛ عدد هر عبارت دقیقاً برابر تعداد تجربه‌هایی است که با انتخاب آن نمایش داده می‌شود. این آمارِ گزارش‌هاست، نه ارزیابی تأییدشده.
             </p>
             <div className="flex flex-wrap gap-2">
-              {keywords.map((k) => (
+              {(showAllKeywords ? keywords : keywords.slice(0, 12)).map((k) => {
+                const active = activeKeywordChip?.phrase === k.phrase;
+                return (
+                  <button
+                    key={k.phrase}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => {
+                      if (active) {
+                        handleSearchInput('');
+                      } else {
+                        handleSearchInput(chipQuery(k.phrase));
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                      }
+                    }}
+                    title={`نمایش ${fa(k.resultCount)} تجربه حاوی «${k.phrase}»`}
+                    className={`px-3 py-1.5 rounded-xl text-[11px] font-bold border transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 ${
+                      active
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'bg-white border-slate-200 text-slate-600 hover:border-blue-200 hover:text-blue-700'
+                    }`}
+                  >
+                    {k.phrase}
+                    <span className={`ms-1.5 ${active ? 'text-blue-100' : 'text-slate-400'}`}>{fa(k.resultCount)}</span>
+                  </button>
+                );
+              })}
+              {keywords.length > 12 && (
                 <button
-                  key={k.token}
                   type="button"
-                  onClick={() => { handleSearchInput(k.token); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-                  className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-[11px] font-bold text-slate-600 hover:border-blue-200 hover:text-blue-700 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+                  onClick={() => setShowAllKeywords((v) => !v)}
+                  aria-expanded={showAllKeywords}
+                  className="px-3 py-1.5 rounded-xl text-[11px] font-black text-blue-700 bg-blue-50/70 border border-blue-100 hover:bg-blue-100 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
                 >
-                  {k.token} <span className="text-slate-400">{fa(k.count)}</span>
+                  {showAllKeywords ? 'نمایش کمتر' : `نمایش ${fa(keywords.length - 12)} مورد دیگر`}
                 </button>
-              ))}
+              )}
             </div>
+            {activeKeywordChip && (
+              <button
+                type="button"
+                onClick={() => handleSearchInput('')}
+                className="mt-2.5 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold text-red-600 bg-red-50 border border-red-100 hover:bg-red-100 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/40"
+              >
+                <X size={11} aria-hidden="true" />
+                برداشتن عبارت «{activeKeywordChip.phrase}»
+              </button>
+            )}
           </div>
 
           {/* Results */}

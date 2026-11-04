@@ -5,8 +5,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 // (core rule does not count `<motion.div />` member-expression objects).
 const MotionDiv = motion.div;
 import {
-  Menu, X, MessageSquare, Users, BookOpen, Cpu, Calendar,
-  SearchX, Dices,
+  Menu, X, MessageSquare, Users, BookOpen, Cpu, SearchX, Dices,
 } from 'lucide-react';
 import lastUpdateData from './last_update.json';
 import { filterAndSort, toSearchable } from './lib/search.js';
@@ -327,113 +326,84 @@ export default function App() {
 
   return (
     <div className="min-h-screen flex flex-col font-sans text-right bg-[#f4f7fb]">
-      {/* Navigation Bar */}
-      <nav className="sticky top-0 z-40 bg-white/90 backdrop-blur-xl border-b border-slate-200/60 shadow-sm transition-all duration-300" aria-label="ناوبری اصلی">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex flex-col justify-center">
-          <div className="flex items-center justify-between w-full gap-3 min-w-0">
-            {/* Logo & Title */}
-            <a href="#/" className="flex items-center gap-3 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 rounded-xl">
-              <div className="w-10 h-10 md:w-12 md:h-12 shrink-0 overflow-hidden rounded-xl shadow-md shadow-blue-100 border border-slate-50 bg-white p-0.5">
-                <img src="./logo.png" alt="" width="96" height="96" className="w-full h-full object-cover rounded-lg" />
+      {/* Navigation — one compact brand row everywhere; on <lg the section
+          tabs and (browse-only) site search stack below it and the whole
+          header scrolls away with the page so phones keep their viewport
+          for content. On lg+ it is a single sticky ~56 px row. */}
+      <nav
+        className="z-40 bg-white/95 backdrop-blur-xl border-b border-slate-200/70 lg:sticky lg:top-0"
+        aria-label="ناوبری اصلی"
+      >
+        <div className="max-w-7xl mx-auto px-4 w-full">
+          {/* Brand row */}
+          <div className="h-[52px] flex items-center justify-between gap-2 min-w-0">
+            <a href="#/" className="flex items-center gap-2.5 shrink-0 min-w-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 rounded-xl">
+              <div className="w-9 h-9 md:w-10 md:h-10 shrink-0 overflow-hidden rounded-xl shadow-sm border border-slate-100 bg-white p-0.5">
+                <img src="./logo.png" alt="" width="80" height="80" className="w-full h-full object-cover rounded-lg" />
               </div>
-              <div className="flex flex-col">
-                <span className="text-slate-900 font-black text-lg leading-none tracking-tight">تجربیات</span>
-                <span className="text-[10px] text-blue-700 font-extrabold uppercase tracking-widest mt-1">IAU of Shiraz<span className="sr-only"> — صفحه اصلی</span></span>
+              <div className="flex flex-col min-w-0">
+                <span className="text-slate-900 font-black text-base leading-none tracking-tight">تجربیات</span>
+                <span className="flex items-center gap-1 mt-1 text-[9px] text-emerald-700 font-bold leading-none">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" aria-hidden="true" />
+                  <span className="shrink-0">بروزرسانی</span>
+                  <time id="last-update" dir="ltr" className="text-emerald-800 font-black tabular-nums">
+                    {lastUpdate || 'نامشخص'}
+                  </time>
+                  <span className="hidden sm:inline shrink-0">به وقت شهر</span>
+                  <span className="sr-only"> — صفحه اصلی</span>
+                </span>
               </div>
             </a>
 
-            {/* Desktop search — browse view only */}
+            {/* Section tabs (lg+, inline pills) */}
+            <ViewTabs section={section} variant="inline" />
+
+            {/* Desktop search — browse view only, quieter than the nav itself */}
             {browsing && (
               <SearchField
                 id="search-desktop"
                 value={searchTerm}
                 onChange={handleSearchChange}
-                className="hidden xl:block relative flex-1 max-w-sm mx-4 min-w-0"
+                className="hidden lg:block relative flex-1 max-w-[240px] xl:max-w-[280px] min-w-0 mx-1"
               />
             )}
+            {!browsing && <div className="hidden lg:block flex-1" aria-hidden="true" />}
 
-            {/* External links (≥ xl) */}
-            <div className="hidden xl:flex items-center gap-3 shrink-0">
-              <div className="flex gap-1 bg-slate-50 p-1.5 rounded-2xl border border-slate-100">
-                {NAV_LINKS.slice(0, 2).map((link) => (
-                  <a key={link.href} href={link.href} target="_blank" rel="noopener noreferrer"
-                    className={`flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-slate-600 ${link.hover} bg-transparent hover:bg-white rounded-xl transition-all shadow-sm shadow-transparent hover:shadow-slate-200/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40`}>
-                    <link.icon size={14} className={link.tone} aria-hidden="true" /> {link.label}
-                  </a>
-                ))}
-              </div>
-              <div className="flex gap-1 bg-slate-50 p-1.5 rounded-2xl border border-slate-100">
-                {NAV_LINKS.slice(2).map((link) => (
-                  <a key={link.href} href={link.href} target="_blank" rel="noopener noreferrer"
-                    className={`flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-slate-600 ${link.hover} bg-transparent hover:bg-white rounded-xl transition-all shadow-sm shadow-transparent hover:shadow-slate-200/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40`}>
-                    <link.icon size={14} className={link.tone} aria-hidden="true" /> {link.label}
-                  </a>
-                ))}
-              </div>
+            {/* External links (xl+) — compact, one quiet group */}
+            <div className="hidden xl:flex items-center gap-1 bg-slate-50/80 border border-slate-100 rounded-xl p-1 shrink-0">
+              {NAV_LINKS.map((link) => (
+                <a key={link.href} href={link.href} target="_blank" rel="noopener noreferrer"
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-bold text-slate-600 ${link.hover} hover:bg-white rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40`}>
+                  <link.icon size={14} className={link.tone} aria-hidden="true" /> {link.label}
+                </a>
+              ))}
             </div>
 
-            {/* Menu toggle (below xl) */}
-            <div className="xl:hidden shrink-0">
-              <button
-                ref={menuButtonRef}
-                type="button"
-                onClick={() => setIsMenuOpen((open) => !open)}
-                aria-expanded={isMenuOpen}
-                aria-controls="mobile-menu"
-                aria-label={isMenuOpen ? 'بستن منو' : 'باز کردن منو'}
-                className="p-2.5 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-xl transition-colors active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
-              >
-                {isMenuOpen ? <X size={20} aria-hidden="true" /> : <Menu size={20} aria-hidden="true" />}
-              </button>
-            </div>
+            {/* Labeled menu toggle (<xl) — visible word, not a bare icon */}
+            <button
+              ref={menuButtonRef}
+              type="button"
+              onClick={() => setIsMenuOpen((open) => !open)}
+              aria-expanded={isMenuOpen}
+              aria-controls="mobile-menu"
+              aria-label={isMenuOpen ? 'بستن منو' : 'باز کردن منو'}
+              className="xl:hidden shrink-0 flex items-center gap-1.5 px-3 h-10 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-xl transition-colors active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+            >
+              {isMenuOpen ? <X size={18} aria-hidden="true" /> : <Menu size={18} aria-hidden="true" />}
+              <span className="text-[11px] font-black">منو</span>
+            </button>
           </div>
 
-          {/* Section tabs */}
+          {/* Section tabs (below lg, full-width row) */}
           <ViewTabs section={section} />
 
-          {/* Always-visible Tehran update time, aligned to the left edge */}
-          <div
-            className="w-full mt-2 flex justify-start"
-            dir="ltr"
-          >
-            <div className="inline-flex items-center gap-2 px-3 py-2 bg-emerald-50/70 border border-emerald-100/70 rounded-xl">
-              <Calendar
-                size={14}
-                className="text-emerald-600 shrink-0"
-                aria-hidden="true"
-              />
-
-              <span
-                dir="rtl"
-                className="text-[10px] text-emerald-700 font-bold"
-              >
-                آخرین بروزرسانی:
-              </span>
-
-              <time
-                id="last-update"
-                dir="ltr"
-                className="text-[11px] text-emerald-800 font-black tabular-nums"
-              >
-                {lastUpdate || 'نامشخص'}
-              </time>
-
-              <span
-                dir="rtl"
-                className="text-[10px] text-emerald-700 font-bold"
-              >
-                به وقت تهران
-              </span>
-            </div>
-          </div>
-
-          {/* Mobile search — browse view only */}
+          {/* Mobile search — browse view only, persistent and compact */}
           {browsing && (
             <SearchField
               id="search-mobile"
               value={searchTerm}
               onChange={handleSearchChange}
-              className="xl:hidden mt-3 relative w-full"
+              className="lg:hidden relative w-full pb-1.5"
             />
           )}
 
@@ -447,8 +417,9 @@ export default function App() {
                 animate={{ height: 'auto', opacity: 1 }}
                 exit={{ height: 0, opacity: 0 }}
                 transition={{ duration: 0.2 }}
-                className="xl:hidden overflow-hidden mt-3 flex flex-col gap-2 pt-3 border-t border-slate-100/80"
+                className="xl:hidden overflow-hidden flex flex-col gap-2 pt-1 pb-2 border-t border-slate-100/80 mt-1"
               >
+                <p className="text-[10px] font-black text-slate-400 tracking-wide pt-2">پیوندهای تلگرام</p>
                 <div className="grid grid-cols-2 gap-2">
                   {NAV_LINKS.map((link) => (
                     <a key={link.href} href={link.href} target="_blank" rel="noopener noreferrer"
@@ -659,6 +630,7 @@ export default function App() {
       <AnimatePresence>
         {selectedExp && (
           <DetailsDialog
+            key={selectedExp.identity}
             exp={selectedExp}
             related={related}
             onOpenExperience={openExperience}

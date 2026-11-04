@@ -50,7 +50,7 @@ from sklearn.preprocessing import Normalizer
 # ---------------------------------------------------------------------------
 # Pinned configuration (recorded in the manifest; do not change casually)
 # ---------------------------------------------------------------------------
-PIPELINE_VERSION = "2.0.0"
+PIPELINE_VERSION = "2.1.0"
 SCHEMA_VERSION = 2
 RNG_SEED = 20260212
 SVD_COMPONENTS = 120
@@ -456,6 +456,68 @@ def run_candidate(name, tfidf_matrix, svd_vectors, feature_names, binary_doc_ter
 # ---------------------------------------------------------------------------
 # Main pipeline
 # ---------------------------------------------------------------------------
+def validate_neighbors(neighbors, doc_ids, valid):
+    """Structural gate on the neighbor map, run BEFORE any publication.
+
+    Enforces (mission §5): every key and neighbor id is a known record
+    identity; no record is its own neighbor; no duplicate ids within a list;
+    Top-K respected; scores finite within [0, 1]; ranking descending.
+    Returns audit diagnostics for the manifest. Any violation aborts the run
+    with SystemExit — a partial or corrupt neighbor map must never publish.
+    """
+    valid_ids = {r["identity"] for r in valid}
+    problems = []
+    all_scores = []
+    neighbor_count_hist = {}
+    hub = {}
+    for doc_id, lst in neighbors.items():
+        if doc_id not in valid_ids:
+            problems.append(f"unknown neighbor key: {doc_id}")
+            continue
+        if len(lst) > NEIGHBOR_TOP_K:
+            problems.append(f"{doc_id}: {len(lst)} neighbors exceed Top-K={NEIGHBOR_TOP_K}")
+        ids = [n["id"] for n in lst]
+        if doc_id in ids:
+            problems.append(f"{doc_id}: self-match present")
+        if len(ids) != len(set(ids)):
+            problems.append(f"{doc_id}: duplicate neighbor ids")
+        for n in lst:
+            if n["id"] not in valid_ids:
+                problems.append(f"{doc_id}: neighbor {n['id']} not in dataset")
+            s = n["score"]
+            if not (isinstance(s, (int, float)) and 0.0 <= s <= 1.0):
+                problems.append(f"{doc_id}: score {s} outside [0, 1]")
+            all_scores.append(float(s))
+            hub[n["id"]] = hub.get(n["id"], 0) + 1
+        for a, b in zip(lst, lst[1:]):
+            if b["score"] > a["score"]:
+                problems.append(f"{doc_id}: ranking not descending")
+                break
+        neighbor_count_hist[len(lst)] = neighbor_count_hist.get(len(lst), 0) + 1
+    if problems:
+        for p in problems[:20]:
+            print(f"[pipeline] NEIGHBOR VALIDATION: {p}")
+        raise SystemExit(
+            f"FATAL: neighbor map failed validation ({len(problems)} problem(s)); nothing published"
+        )
+    scores_sorted = sorted(all_scores)
+    n = len(all_scores)
+    top_hubs = sorted(hub.items(), key=lambda kv: (-kv[1], kv[0]))[:5]
+    return {
+        "documentsWithNeighbors": len(neighbors),
+        "documentsEligible": len(doc_ids),
+        "coverage": round(len(neighbors) / max(len(doc_ids), 1), 4),
+        "recordsWithNoSimilar": len(doc_ids) - len(neighbors),
+        "totalNeighborEntries": n,
+        "scoreMin": round(min(all_scores), 4) if n else None,
+        "scoreMedian": round((scores_sorted[(n - 1) // 2] + scores_sorted[n // 2]) / 2, 4) if n else None,
+        "scoreMax": round(max(all_scores), 4) if n else None,
+        "neighborCountHistogram": {str(k): v for k, v in sorted(neighbor_count_hist.items())},
+        "hubTop": [{"id": i, "count": c} for i, c in top_hubs],
+        "hubMaxCount": top_hubs[0][1] if top_hubs else 0,
+    }
+
+
 def build(data_path: Path, out_path: Path, summary_path: Path | None):
     raw_bytes = data_path.read_bytes()
     source_sha256 = hashlib.sha256(raw_bytes).hexdigest()
@@ -577,16 +639,15 @@ def build(data_path: Path, out_path: Path, summary_path: Path | None):
         and (q["meanNpmiCoherence"] or -1) > 0
     )
     mode = "semantic" if passes else "lexical-fallback"
-    print(f"[pipeline] selected={best_name} mode={mode}")
+    print(f"[pipeline] selected={best_name} topic-mode={mode}")
 
     topics = []
     doc_topic = {}
-    neighbors = {}
+    # doc offsets map back to record identities (shared by topics + neighbors)
+    doc_ids = [valid[i]["identity"] for i in nonempty_idx]
     if passes:
         labels = all_results[best_name]["labels"]
         labels_obj = all_results[best_name]["labelsObj"]
-        # doc offsets map back to record ids
-        doc_ids = [valid[i]["identity"] for i in nonempty_idx]
         for c, info in sorted(labels_obj.items()):
             member_rows = [i for i, l in enumerate(labels) if l == c]
             member_ids = [doc_ids[i] for i in member_rows]
@@ -626,12 +687,32 @@ def build(data_path: Path, out_path: Path, summary_path: Path | None):
             for i in member_rows:
                 doc_topic[doc_ids[i]] = topic_id
 
-        # neighbors on LSA vectors (full docs incl. empty-text excluded above)
+    # --- Neighbors: decoupled from the topic-clustering gate (fix 2026-11) ---
+    # LSA cosine similarity between documents does not depend on topic
+    # clustering, and the clustering quality gate says nothing about
+    # neighbor-list quality. Pipeline 2.0.0 nested neighbor generation inside
+    # `if passes:`, so whenever the topic gate failed (e.g. cross-environment
+    # sklearn variance on the automated regeneration), the "lexical-fallback"
+    # artifact shipped an EMPTY neighbor map and the per-card
+    # similar-experiences feature disappeared entirely. The gate now governs
+    # topics only; neighbors are computed whenever the LSA space exists, with
+    # an explicit score threshold, self-exclusion, duplicate exclusion and
+    # per-course/per-professor diversity caps. A record with no candidate at
+    # or above NEIGHBOR_MIN_SCORE gets no entry: an honest empty state, never
+    # a forced match.
+    neighbors = {}
+    neighbor_method = "lsa-unavailable"
+    if lsa.shape[0] >= 2:
+        neighbor_method = "lsa-cosine"
         norms = np.linalg.norm(lsa, axis=1, keepdims=True)
         unit = lsa / np.maximum(norms, 1e-12)
         sims = unit @ unit.T
-        course_by_id = {r["id"]: normalize_fa(r["course"]) for r in valid}
-        prof_by_id = {r["id"]: normalize_fa(r["professor"]) for r in valid}
+        # Keyed by record IDENTITY (the app's lookup key). Pipeline 2.0.0 keyed
+        # these maps by the raw dataset id (JSON number) while comparing them
+        # against identity strings, so both diversity caps were silently dead
+        # code (measured: 23 lists exceeded the same-course cap).
+        course_by_id = {r["identity"]: normalize_fa(r["course"]) for r in valid}
+        prof_by_id = {r["identity"]: normalize_fa(r["professor"]) for r in valid}
         for i, doc_id in enumerate(doc_ids):
             order = np.argsort(-sims[i])
             picked = []
@@ -657,6 +738,44 @@ def build(data_path: Path, out_path: Path, summary_path: Path | None):
                     break
             if picked:
                 neighbors[doc_id] = picked
+    neighbors_mode = "semantic" if neighbor_method == "lsa-cosine" else "lexical-fallback"
+    print(f"[pipeline] neighbors: method={neighbor_method} docs={len(neighbors)}/{len(doc_ids)}")
+
+    # Structural validation BEFORE publication — a corrupt or partial map
+    # aborts the run instead of shipping.
+    neighbor_audit = validate_neighbors(neighbors, doc_ids, valid)
+    print(f"[pipeline] neighbor audit: coverage={neighbor_audit['coverage']}, "
+          f"hubMax={neighbor_audit['hubMaxCount']}, "
+          f"scoreRange=[{neighbor_audit['scoreMin']}, {neighbor_audit['scoreMax']}]")
+
+    def _pkg_version(name):
+        try:
+            from importlib.metadata import version
+            return version(name)
+        except Exception:
+            return None
+
+    environment = {
+        "python": sys.version.split()[0],
+        "numpy": np.__version__,
+        "scipy": _pkg_version("scipy"),
+        "scikit-learn": _pkg_version("scikit-learn"),
+    }
+
+    def content_checksum(obj):
+        """Deterministic digest of artifact CONTENT (excludes generatedAt), so
+        repeated runs over the same dataset can be compared byte-for-byte."""
+        payload = json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    topics_content_checksum = content_checksum({
+        "topics": topics, "docTopic": doc_topic,
+        "driftFingerprint": drift_fingerprint, "topicMode": mode,
+    })
+    neighbors_content_checksum = content_checksum({
+        "neighbors": neighbors,
+        "driftFingerprint": drift_fingerprint, "neighborMethod": neighbor_method,
+    })
 
     artifact = {
         "manifest": {
@@ -670,6 +789,7 @@ def build(data_path: Path, out_path: Path, summary_path: Path | None):
             "topicEligibleRecords": topic_eligible,
             "generatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "mode": mode,
+            "environment": environment,
             "config": {
                 "svdComponents": int(n_components),
                 "tfidfMinDf": TFIDF_MIN_DF,
@@ -682,6 +802,8 @@ def build(data_path: Path, out_path: Path, summary_path: Path | None):
                 "minClusterSize": MIN_CLUSTER_SIZE,
                 "neighborTopK": NEIGHBOR_TOP_K,
                 "neighborMinScore": NEIGHBOR_MIN_SCORE,
+                "neighborMaxSameCourse": NEIGHBOR_MAX_SAME_COURSE,
+                "neighborMaxSameProfessor": NEIGHBOR_MAX_SAME_PROF,
                 "chosenK": best_kmeans_consensus.get("k") if best_name == "kmeans-consensus" else None,
                 "kSearchRange": [KMEANS_K_MIN, KMEANS_K_MAX, 4],
                 "kFixedOperatingChoice": True
@@ -708,15 +830,32 @@ def build(data_path: Path, out_path: Path, summary_path: Path | None):
 
     # Two published artifacts: topics+manifest (small, topic explorer) and
     # neighbors+manifest (larger, loaded on explicit user action only — §12).
+    # Each part carries its OWN mode: the topics mode reflects the clustering
+    # quality gate, the neighbors mode reflects whether LSA neighbor lists
+    # were actually computed. The frontend binds each artifact independently,
+    # so a topic-gate failure must never disable per-card neighbors (this
+    # coupling was the 2026-11 regression), and neighbor lists must never be
+    # presented as semantic when they were not computed.
     topics_artifact = {
-        "manifest": {**artifact["manifest"], "part": "topics"},
+        "manifest": {
+            **artifact["manifest"],
+            "part": "topics",
+            "contentChecksum": topics_content_checksum,
+        },
         "diagnostics": artifact["diagnostics"],
         "topics": artifact["topics"],
         "docTopic": artifact["docTopic"],
     }
     neighbors_artifact = {
-        "manifest": {**artifact["manifest"], "part": "neighbors"},
-        "neighbors": artifact["neighbors"],
+        "manifest": {
+            **artifact["manifest"],
+            "part": "neighbors",
+            "mode": neighbors_mode,
+            "neighborMethod": neighbor_method,
+            "contentChecksum": neighbors_content_checksum,
+        },
+        "diagnostics": {**artifact["diagnostics"], "neighborAudit": neighbor_audit},
+        "neighbors": neighbors,
     }
 
     # stage + validate + atomic publish. Artifact integrity hashes are recorded
@@ -727,7 +866,7 @@ def build(data_path: Path, out_path: Path, summary_path: Path | None):
     out_path.parent.mkdir(parents=True, exist_ok=True)
     published = {}
 
-    def publish(part_artifact, path: Path):
+    def publish(part_artifact, path: Path, expected_mode: str):
         payload = json.dumps(part_artifact, ensure_ascii=False)
         payload_bytes = payload.encode("utf-8")
         fd, tmp_name = tempfile.mkstemp(prefix=".atlas-", suffix=".tmp", dir=str(path.parent))
@@ -737,7 +876,7 @@ def build(data_path: Path, out_path: Path, summary_path: Path | None):
             reparsed = json.loads(Path(tmp_name).read_text(encoding="utf-8"))
             assert reparsed["manifest"]["datasetDriftFingerprint"] == drift_fingerprint
             assert reparsed["manifest"]["datasetFingerprint"] == dataset_fingerprint
-            assert reparsed["manifest"]["mode"] == mode
+            assert reparsed["manifest"]["mode"] == expected_mode
             os.replace(tmp_name, path)
         finally:
             if os.path.exists(tmp_name):
@@ -749,8 +888,8 @@ def build(data_path: Path, out_path: Path, summary_path: Path | None):
 
     topics_path = out_path.with_name("atlas-topics.json")
     neighbors_path = out_path.with_name("atlas-neighbors.json")
-    publish(topics_artifact, topics_path)
-    publish(neighbors_artifact, neighbors_path)
+    publish(topics_artifact, topics_path, mode)
+    publish(neighbors_artifact, neighbors_path, neighbors_mode)
     # Canonical Phase IV output contract: the split artifacts above.
     # (--out remains accepted for compatibility; only its directory is used.)
 
@@ -760,14 +899,22 @@ def build(data_path: Path, out_path: Path, summary_path: Path | None):
         "datasetDriftFingerprint": drift_fingerprint,
         "datasetFingerprint": dataset_fingerprint,
         "mode": mode,
+        "neighborsMode": neighbors_mode,
+        "neighborMethod": neighbor_method,
         "selectedCandidate": best_name,
         "topics": len(topics),
         "topicSizes": [t["size"] for t in topics],
         "clusteredDocs": len(doc_topic),
         "neighborDocs": len(neighbors),
+        "neighborAudit": neighbor_audit,
         "comparison": comparison,
         "stability": stability,
         "counts": counts,
+        "environment": environment,
+        "contentChecksums": {
+            "topics": topics_content_checksum,
+            "neighbors": neighbors_content_checksum,
+        },
         "artifacts": published,
     }
     if summary_path:

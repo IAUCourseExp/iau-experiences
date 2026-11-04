@@ -54,6 +54,19 @@ describe('parseQueryTerms', () => {
     expect(terms).toEqual(['حضور', 'پروژه']);
     expect(phrases).toEqual(['و غیاب']);
   });
+  it('accepts Persian guillemets as phrase quotes (advertised syntax)', () => {
+    // Phase V: the explorer help text and keyword chips advertise «...» but
+    // the parser silently ignored guillemets, turning the phrase into two
+    // guillemet-glued terms that matched nothing.
+    const { terms, phrases } = parseQueryTerms('«حضور و غیاب»');
+    expect(phrases).toEqual(['حضور و غیاب']);
+    expect(terms).toEqual([]);
+  });
+  it('mixes guillemet phrases with plain terms', () => {
+    const { terms, phrases } = parseQueryTerms('پروژه «حضور غیاب» امتحان');
+    expect(phrases).toEqual(['حضور غیاب']);
+    expect(terms).toEqual(['پروژه', 'امتحان']);
+  });
   it('handles empty and whitespace-only queries', () => {
     expect(parseQueryTerms('')).toEqual({ terms: [], phrases: [] });
     expect(parseQueryTerms('   ')).toEqual({ terms: [], phrases: [] });

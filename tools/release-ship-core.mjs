@@ -242,8 +242,11 @@ export function runShip(io) {
   }
   // Post-preflight state drift that does not change file sets (e.g. a file
   // flipped between modified/unmodified) is already caught by the hash checks.
+  // Both sides are restricted to the release allowlist: the marker records
+  // every working-tree change (including preserved untracked files), while
+  // preserved content is governed by the scope check above, not this check.
   const currentChanged = [...statusPaths].filter((p) => allowlistSet.has(p)).sort();
-  const markerChanged = [...marker.changedFiles].sort();
+  const markerChanged = [...marker.changedFiles].filter((p) => allowlistSet.has(p)).sort();
   if (JSON.stringify(currentChanged) !== JSON.stringify(markerChanged)) {
     fail('the set of changed release files differs from the preflight marker. Re-run: npm run release-preflight');
   }
